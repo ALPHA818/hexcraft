@@ -1,0 +1,40 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="theme-color" content="#08111a" />
+    <title>Hexcraft</title>
+  </head>
+  <body>
+    <div id="sky" aria-hidden="true"></div>
+    <canvas id="game" aria-label="Hexcraft game viewport"></canvas>
+    <main id="status">
+      <h1>Hexcraft</h1>
+      <p id="message">Starting renderer…</p>
+    </main>
+    <div id="crosshair" aria-hidden="true"></div>
+    <nav id="hotbar" aria-label="Block hotbar"></nav>
+    <section id="inventory-panel" hidden>
+      <header>
+        <h2>Inventory & Crafting</h2>
+        <span>E to close</span>
+      </header>
+      <div id="inventory-counts"></div>
+      <article class="recipe">
+        <div>
+          <strong>Wood Planks</strong>
+          <p>1 wood → 4 planks</p>
+        </div>
+        <button id="craft-planks" type="button">Craft</button>
+      </article>
+    </section>
+    <aside id="controls">
+      <strong>Click to play</strong>
+      <p>
+        WASD move · Space jump · Shift sprint · Left mine · Right place · E inventory
+      </p>
+    </aside>
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>
