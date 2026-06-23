@@ -2,22 +2,48 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1.0, viewport-fit=cover"
+    />
     <meta name="theme-color" content="#08111a" />
     <title>Hexcraft</title>
   </head>
   <body>
     <div id="sky" aria-hidden="true"></div>
+    <div id="stars" aria-hidden="true"></div>
+    <div id="moon" aria-hidden="true"></div>
+    <div id="clouds" aria-hidden="true"></div>
     <canvas id="game" aria-label="Hexcraft game viewport"></canvas>
+    <canvas id="weather" aria-hidden="true"></canvas>
     <main id="status">
       <h1>Hexcraft</h1>
+      <strong id="mode-status">Creative testing mode</strong>
       <p id="message">Starting renderer…</p>
+      <p id="weather-status">Weather loading…</p>
     </main>
     <div id="crosshair" aria-hidden="true"></div>
     <nav id="hotbar" aria-label="Block hotbar"></nav>
+    <div id="mobile-controls" hidden>
+      <div id="look-zone" aria-label="Drag to look"></div>
+      <div id="move-stick" aria-label="Movement joystick">
+        <div id="move-knob"></div>
+      </div>
+      <div id="touch-actions">
+        <button id="touch-jump" type="button">Up</button>
+        <button id="touch-down" type="button">Down</button>
+        <button id="touch-mine" type="button">Mine</button>
+        <button id="touch-place" type="button">Place</button>
+      </div>
+      <div id="touch-menu">
+        <button id="touch-slot" type="button">Block</button>
+        <button id="touch-inventory" type="button">Bag</button>
+        <button id="touch-weather" type="button">Sky</button>
+      </div>
+    </div>
     <section id="inventory-panel" hidden>
       <header>
-        <h2>Inventory & Crafting</h2>
+        <h2>Creative Blocks</h2>
         <span>E to close</span>
       </header>
       <div id="inventory-counts"></div>
@@ -32,7 +58,7 @@
     <aside id="controls">
       <strong>Click to play</strong>
       <p>
-        WASD move · Space jump · Shift sprint · Left mine · Right place · E inventory
+        Creative flight · WASD move · Space up · Shift down · Left mine · Right place · E blocks · T weather · N time · P pause
       </p>
     </aside>
     <script type="module" src="/src/main.ts"></script>

@@ -1,5 +1,8 @@
 import {
   buildTerrainChunk,
+  isCollisionSolidMaterial,
+  isFluidMaterial,
+  isRaycastTargetMaterial,
   TERRAIN_BASE_Y,
   TERRAIN_BLOCK_HEIGHT,
   TERRAIN_BLOCK_RADIUS,
@@ -38,6 +41,18 @@ export type TerrainStreamUpdate = Readonly<{
   seed: number;
 }>;
 
+export type TerrainEdit = readonly [
+  q: number,
+  r: number,
+  level: number,
+  material: TerrainMaterial,
+];
+
+export type TerrainBuildResult = Readonly<{
+  update: TerrainStreamUpdate;
+  columns: readonly TerrainColumn[];
+}>;
+
 export const DEFAULT_WORLD_SEED = 0x484558;
 export const DEFAULT_CHUNK_SIZE = 8;
 export const DEFAULT_RENDER_DISTANCE = 4;
@@ -50,6 +65,15 @@ const HEX_DIRECTIONS: ReadonlyArray<readonly [number, number]> = [
   [0, -1],
   [1, -1],
 ];
+const HORIZONTAL_DIRECTIONS: ReadonlyArray<readonly [number, number]> =
+  HEX_DIRECTIONS.slice(1);
+const WATER_SPREAD_DISTANCE = 5;
+const WATER_FLOW_SCAN_RADIUS = 2;
+const WATER_FLOW_LEVEL_RADIUS = 3;
+const MAX_WATER_FLOW_EDITS = 96;
+const LEAF_SUPPORT_DISTANCE = 5;
+const LEAF_DECAY_SCAN_RADIUS = 3;
+const LEAF_DECAY_LEVEL_RADIUS = 8;
 
 function interpolate(a: number, b: number, amount: number): number {
   return a + (b - a) * amount;
@@ -63,6 +87,15 @@ function rangeStep(minimum: number, maximum: number, value: number): number {
   return smoothStep(
     Math.max(0, Math.min(1, (value - minimum) / (maximum - minimum))),
   );
+}
+
+function axialDistance(
+  a: AxialPosition,
+  b: AxialPosition,
+): number {
+  const dq = a.q - b.q;
+  const dr = a.r - b.r;
+  return (Math.abs(dq) + Math.abs(dr) + Math.abs(dq + dr)) / 2;
 }
 
 function hash2d(x: number, z: number, seed: number): number {
@@ -498,14 +531,71 @@ export function generateStreamedColumns(
   return columns;
 }
 
+export function buildTerrainStream(
+  centerChunk: AxialPosition,
+  chunkSize = DEFAULT_CHUNK_SIZE,
+  renderDistance = DEFAULT_RENDER_DISTANCE,
+  seed = DEFAULT_WORLD_SEED,
+  edits: readonly TerrainEdit[] = [],
+): TerrainBuildResult {
+  const columns = generateStreamedColumns(
+    centerChunk,
+    chunkSize,
+    renderDistance,
+    seed,
+  );
+  const editsByColumn = new Map<string, TerrainEdit[]>();
+
+  for (const edit of edits) {
+    const key = `${edit[0]},${edit[1]}`;
+    const columnEdits = editsByColumn.get(key);
+    if (columnEdits) {
+      columnEdits.push(edit);
+    } else {
+      editsByColumn.set(key, [edit]);
+    }
+  }
+
+  const editedColumns = columns.map((column) => {
+    const columnEdits = editsByColumn.get(`${column.q},${column.r}`);
+    if (!columnEdits || !column.blocks) {
+      return column;
+    }
+
+    const highestLevel = Math.max(...columnEdits.map((edit) => edit[2]));
+    const blocks = new Uint8Array(
+      Math.max(column.blocks.length, highestLevel + 1),
+    );
+    blocks.set(column.blocks);
+    for (const [, , level, material] of columnEdits) {
+      blocks[level] = material;
+    }
+    return { ...column, blocks };
+  });
+
+  return {
+    update: {
+      mesh: buildTerrainChunk(editedColumns),
+      centerChunk,
+      loadedChunkCount: (renderDistance * 2 + 1) ** 2,
+      seed,
+    },
+    columns: editedColumns,
+  };
+}
+
 export class InfiniteTerrain {
   readonly #seed: number;
   readonly #chunkSize: number;
   readonly #renderDistance: number;
   readonly #edits = new Map<string, Map<number, TerrainMaterial>>();
+  readonly #columnCache = new Map<string, TerrainColumn>();
 
   #centerChunk: AxialPosition | null = null;
   #loadedColumns = new Map<string, TerrainColumn>();
+  #worker: Worker | null = null;
+  #workerRequestId = 0;
+  #cancelPendingBuild: (() => void) | null = null;
 
   constructor(
     seed = DEFAULT_WORLD_SEED,
@@ -536,6 +626,27 @@ export class InfiniteTerrain {
     return this.#buildUpdate(centerChunk);
   }
 
+  requestUpdate(
+    position: WorldPosition,
+  ): Promise<TerrainStreamUpdate | null> | null {
+    const axial = worldToAxial(position.x, position.z);
+    const centerChunk = chunkAtAxial(
+      axial.q,
+      axial.r,
+      this.#chunkSize,
+    );
+
+    if (
+      this.#centerChunk?.q === centerChunk.q &&
+      this.#centerChunk.r === centerChunk.r
+    ) {
+      return null;
+    }
+
+    this.#centerChunk = centerChunk;
+    return this.#requestBackgroundBuild(centerChunk);
+  }
+
   rebuild(): TerrainStreamUpdate | null {
     return this.#centerChunk ? this.#buildUpdate(this.#centerChunk) : null;
   }
@@ -550,15 +661,28 @@ export class InfiniteTerrain {
       return edited;
     }
 
-    const column =
-      this.#loadedColumns.get(`${q},${r}`) ??
-      generateTerrainColumn(q, r, this.#seed, false);
+    const key = `${q},${r}`;
+    let column = this.#loadedColumns.get(key) ?? this.#columnCache.get(key);
+    if (!column) {
+      column = generateTerrainColumn(q, r, this.#seed, false);
+      this.#columnCache.set(key, column);
+      if (this.#columnCache.size > 1024) {
+        const oldestKey = this.#columnCache.keys().next().value;
+        if (oldestKey !== undefined) {
+          this.#columnCache.delete(oldestKey);
+        }
+      }
+    }
     return (column.blocks?.[level] ?? TerrainMaterial.Air) as TerrainMaterial;
   }
 
   isSolidAt(q: number, r: number, level: number): boolean {
     const material = this.materialAt(q, r, level);
-    return material !== TerrainMaterial.Air && material !== TerrainMaterial.Water;
+    return isCollisionSolidMaterial(material);
+  }
+
+  isFluidAt(q: number, r: number, level: number): boolean {
+    return isFluidMaterial(this.materialAt(q, r, level));
   }
 
   groundYAt(x: number, z: number, maximumY: number): number {
@@ -602,10 +726,7 @@ export class InfiniteTerrain {
       const voxel = { q, r, level };
       const material = this.materialAt(q, r, level);
 
-      if (
-        material !== TerrainMaterial.Air &&
-        material !== TerrainMaterial.Water
-      ) {
+      if (isRaycastTargetMaterial(material)) {
         return {
           voxel,
           adjacent: previous,
@@ -629,6 +750,14 @@ export class InfiniteTerrain {
     return this.isSolidAt(q, r, level);
   }
 
+  isFluidAtWorld(x: number, y: number, z: number): boolean {
+    const { q, r } = worldToAxial(x, z);
+    const level = Math.floor(
+      (y - TERRAIN_BASE_Y) / TERRAIN_BLOCK_HEIGHT,
+    );
+    return this.isFluidAt(q, r, level);
+  }
+
   setBlock(
     position: VoxelPosition,
     material: TerrainMaterial,
@@ -637,53 +766,345 @@ export class InfiniteTerrain {
       return null;
     }
 
+    const previousMaterial = this.materialAt(
+      position.q,
+      position.r,
+      position.level,
+    );
+    this.#setEditedBlock(position, material);
+    this.#applyMaterialConsequences(
+      position,
+      previousMaterial,
+      material,
+    );
+    return this.rebuild();
+  }
+
+  setBlockAsync(
+    position: VoxelPosition,
+    material: TerrainMaterial,
+  ): Promise<TerrainStreamUpdate | null> | null {
+    if (position.level < 0 || !this.#centerChunk) {
+      return null;
+    }
+
+    const previousMaterial = this.materialAt(
+      position.q,
+      position.r,
+      position.level,
+    );
+    this.#setEditedBlock(position, material);
+    this.#applyMaterialConsequences(
+      position,
+      previousMaterial,
+      material,
+    );
+    return this.#requestBackgroundBuild(this.#centerChunk);
+  }
+
+  #setEditedBlock(
+    position: VoxelPosition,
+    material: TerrainMaterial,
+  ): void {
     const key = `${position.q},${position.r}`;
     let columnEdits = this.#edits.get(key);
-
     if (!columnEdits) {
       columnEdits = new Map();
       this.#edits.set(key, columnEdits);
     }
-
     columnEdits.set(position.level, material);
-    return this.rebuild();
+    this.#columnCache.delete(key);
+  }
+
+  #applyMaterialConsequences(
+    position: VoxelPosition,
+    previousMaterial: TerrainMaterial,
+    material: TerrainMaterial,
+  ): void {
+    if (material === TerrainMaterial.Air) {
+      this.#settleWaterAround(position);
+    }
+
+    if (
+      previousMaterial === TerrainMaterial.Wood &&
+      material !== TerrainMaterial.Wood
+    ) {
+      this.#decayUnsupportedLeavesAround(position);
+    }
+  }
+
+  #isWaterFillable(position: VoxelPosition): boolean {
+    return (
+      position.level >= 0 &&
+      this.materialAt(position.q, position.r, position.level) ===
+        TerrainMaterial.Air
+    );
+  }
+
+  #settleWaterAround(origin: VoxelPosition): void {
+    type WaterNode = VoxelPosition & Readonly<{ distance: number }>;
+    const queue: WaterNode[] = [];
+    const visited = new Set<string>();
+    let waterEditCount = 0;
+
+    const enqueue = (node: WaterNode): void => {
+      const key = `${node.q},${node.r},${node.level}`;
+      if (visited.has(key)) {
+        return;
+      }
+      visited.add(key);
+      queue.push(node);
+    };
+
+    for (
+      let q = origin.q - WATER_FLOW_SCAN_RADIUS;
+      q <= origin.q + WATER_FLOW_SCAN_RADIUS;
+      q += 1
+    ) {
+      for (
+        let r = origin.r - WATER_FLOW_SCAN_RADIUS;
+        r <= origin.r + WATER_FLOW_SCAN_RADIUS;
+        r += 1
+      ) {
+        if (axialDistance(origin, { q, r }) > WATER_FLOW_SCAN_RADIUS) {
+          continue;
+        }
+
+        for (
+          let level = Math.max(0, origin.level - WATER_FLOW_LEVEL_RADIUS);
+          level <= origin.level + WATER_FLOW_LEVEL_RADIUS;
+          level += 1
+        ) {
+          if (this.materialAt(q, r, level) === TerrainMaterial.Water) {
+            enqueue({ q, r, level, distance: 0 });
+          }
+        }
+      }
+    }
+
+    for (
+      let cursor = 0;
+      cursor < queue.length && waterEditCount < MAX_WATER_FLOW_EDITS;
+      cursor += 1
+    ) {
+      const source = queue[cursor]!;
+
+      if (source.level > 0) {
+        const below = {
+          q: source.q,
+          r: source.r,
+          level: source.level - 1,
+        };
+        if (this.#isWaterFillable(below)) {
+          this.#setEditedBlock(below, TerrainMaterial.Water);
+          waterEditCount += 1;
+          enqueue({ ...below, distance: source.distance });
+          continue;
+        }
+      }
+
+      if (source.distance >= WATER_SPREAD_DISTANCE) {
+        continue;
+      }
+
+      for (const [offsetQ, offsetR] of HORIZONTAL_DIRECTIONS) {
+        const next = {
+          q: source.q + offsetQ,
+          r: source.r + offsetR,
+          level: source.level,
+        };
+
+        if (!this.#isWaterFillable(next)) {
+          continue;
+        }
+
+        this.#setEditedBlock(next, TerrainMaterial.Water);
+        waterEditCount += 1;
+        enqueue({ ...next, distance: source.distance + 1 });
+
+        if (waterEditCount >= MAX_WATER_FLOW_EDITS) {
+          break;
+        }
+      }
+    }
+  }
+
+  #decayUnsupportedLeavesAround(origin: VoxelPosition): void {
+    const candidates: VoxelPosition[] = [];
+
+    for (
+      let q = origin.q - LEAF_DECAY_SCAN_RADIUS;
+      q <= origin.q + LEAF_DECAY_SCAN_RADIUS;
+      q += 1
+    ) {
+      for (
+        let r = origin.r - LEAF_DECAY_SCAN_RADIUS;
+        r <= origin.r + LEAF_DECAY_SCAN_RADIUS;
+        r += 1
+      ) {
+        if (axialDistance(origin, { q, r }) > LEAF_DECAY_SCAN_RADIUS) {
+          continue;
+        }
+
+        for (
+          let level = Math.max(0, origin.level - LEAF_DECAY_LEVEL_RADIUS);
+          level <= origin.level + LEAF_DECAY_LEVEL_RADIUS;
+          level += 1
+        ) {
+          if (this.materialAt(q, r, level) === TerrainMaterial.Leaves) {
+            candidates.push({ q, r, level });
+          }
+        }
+      }
+    }
+
+    for (const candidate of candidates) {
+      if (
+        this.materialAt(candidate.q, candidate.r, candidate.level) ===
+          TerrainMaterial.Leaves &&
+        !this.#leafHasWoodSupport(candidate)
+      ) {
+        this.#setEditedBlock(candidate, TerrainMaterial.Air);
+      }
+    }
+  }
+
+  #leafHasWoodSupport(start: VoxelPosition): boolean {
+    type LeafNode = VoxelPosition & Readonly<{ distance: number }>;
+    const queue: LeafNode[] = [{ ...start, distance: 0 }];
+    const visited = new Set<string>([
+      `${start.q},${start.r},${start.level}`,
+    ]);
+
+    const enqueue = (position: VoxelPosition, distance: number): void => {
+      const key = `${position.q},${position.r},${position.level}`;
+      if (visited.has(key)) {
+        return;
+      }
+      visited.add(key);
+      queue.push({ ...position, distance });
+    };
+
+    for (let cursor = 0; cursor < queue.length; cursor += 1) {
+      const node = queue[cursor]!;
+      const nextDistance = node.distance + 1;
+
+      if (nextDistance > LEAF_SUPPORT_DISTANCE) {
+        continue;
+      }
+
+      for (const [offsetQ, offsetR] of HORIZONTAL_DIRECTIONS) {
+        const neighbor = {
+          q: node.q + offsetQ,
+          r: node.r + offsetR,
+          level: node.level,
+        };
+        const material = this.materialAt(
+          neighbor.q,
+          neighbor.r,
+          neighbor.level,
+        );
+        if (material === TerrainMaterial.Wood) {
+          return true;
+        }
+        if (material === TerrainMaterial.Leaves) {
+          enqueue(neighbor, nextDistance);
+        }
+      }
+
+      for (const offsetLevel of [-1, 1] as const) {
+        const neighbor = {
+          q: node.q,
+          r: node.r,
+          level: node.level + offsetLevel,
+        };
+        const material = this.materialAt(
+          neighbor.q,
+          neighbor.r,
+          neighbor.level,
+        );
+        if (material === TerrainMaterial.Wood) {
+          return true;
+        }
+        if (material === TerrainMaterial.Leaves) {
+          enqueue(neighbor, nextDistance);
+        }
+      }
+    }
+
+    return false;
   }
 
   #buildUpdate(centerChunk: AxialPosition): TerrainStreamUpdate {
-    const columns = generateStreamedColumns(
+    const result = buildTerrainStream(
       centerChunk,
       this.#chunkSize,
       this.#renderDistance,
       this.#seed,
+      this.#serializedEdits(),
     );
     this.#loadedColumns.clear();
+    for (const column of result.columns) {
+      this.#loadedColumns.set(`${column.q},${column.r}`, column);
+    }
+    return result.update;
+  }
 
-    const editedColumns = columns.map((column) => {
-      const key = `${column.q},${column.r}`;
-      const edits = this.#edits.get(key);
-      let editedColumn = column;
-
-      if (edits && column.blocks) {
-        const highestLevel = Math.max(...edits.keys());
-        const blocks = new Uint8Array(
-          Math.max(column.blocks.length, highestLevel + 1),
-        );
-        blocks.set(column.blocks);
-        for (const [level, material] of edits) {
-          blocks[level] = material;
-        }
-        editedColumn = { ...column, blocks };
+  #serializedEdits(): TerrainEdit[] {
+    const edits: TerrainEdit[] = [];
+    for (const [key, columnEdits] of this.#edits) {
+      const [qText, rText] = key.split(",");
+      const q = Number(qText);
+      const r = Number(rText);
+      for (const [level, material] of columnEdits) {
+        edits.push([q, r, level, material]);
       }
+    }
+    return edits;
+  }
 
-      this.#loadedColumns.set(key, editedColumn);
-      return editedColumn;
+  #requestBackgroundBuild(
+    centerChunk: AxialPosition,
+  ): Promise<TerrainStreamUpdate | null> {
+    if (typeof Worker === "undefined") {
+      return Promise.resolve(this.#buildUpdate(centerChunk));
+    }
+
+    this.#cancelPendingBuild?.();
+    this.#cancelPendingBuild = null;
+    this.#worker?.terminate();
+    const requestId = ++this.#workerRequestId;
+    const worker = new Worker(
+      new URL("./terrainWorker.ts", import.meta.url),
+      { type: "module" },
+    );
+    this.#worker = worker;
+
+    return new Promise((resolve, reject) => {
+      this.#cancelPendingBuild = () => resolve(null);
+      worker.addEventListener("message", (event: MessageEvent<TerrainStreamUpdate>) => {
+        worker.terminate();
+        if (this.#worker === worker) {
+          this.#worker = null;
+          this.#cancelPendingBuild = null;
+        }
+        resolve(requestId === this.#workerRequestId ? event.data : null);
+      });
+      worker.addEventListener("error", (event) => {
+        worker.terminate();
+        if (this.#worker === worker) {
+          this.#worker = null;
+          this.#cancelPendingBuild = null;
+        }
+        reject(event.error ?? new Error(event.message));
+      });
+      worker.postMessage({
+        centerChunk,
+        chunkSize: this.#chunkSize,
+        renderDistance: this.#renderDistance,
+        seed: this.#seed,
+        edits: this.#serializedEdits(),
+      });
     });
-
-    return {
-      mesh: buildTerrainChunk(editedColumns),
-      centerChunk,
-      loadedChunkCount: (this.#renderDistance * 2 + 1) ** 2,
-      seed: this.#seed,
-    };
   }
 }

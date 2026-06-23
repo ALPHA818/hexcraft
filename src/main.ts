@@ -1,7 +1,14 @@
 import "./style.css";
+import { Atmosphere } from "./environment/Atmosphere.ts";
 import { Inventory } from "./game/Inventory.ts";
+import {
+  ACTIVE_GAME_MODE,
+  isCreativeMode,
+} from "./game/gameMode.ts";
 import { SurvivalController } from "./game/SurvivalController.ts";
 import { FirstPersonCamera } from "./input/FirstPersonCamera.ts";
+import { MobileControls } from "./input/MobileControls.ts";
+import { DEVICE_PROFILE } from "./platform/deviceProfile.ts";
 import { WebGlRenderer } from "./render/WebGlRenderer.ts";
 import { WebGpuRenderer } from "./render/WebGpuRenderer.ts";
 import {
@@ -18,10 +25,25 @@ if (!canvas || !message) {
 
 const gameCanvas = canvas;
 const statusMessage = message;
+const mobileControlsRoot =
+  document.querySelector<HTMLElement>("#mobile-controls");
+
+document.body.classList.toggle("mobile-game", DEVICE_PROFILE.isMobile);
+document.body.classList.toggle(
+  "creative-game",
+  isCreativeMode(ACTIVE_GAME_MODE),
+);
+if (mobileControlsRoot && !DEVICE_PROFILE.isMobile) {
+  mobileControlsRoot.hidden = true;
+}
 
 async function start(): Promise<void> {
   try {
-    const world = new InfiniteTerrain();
+    const world = new InfiniteTerrain(
+      undefined,
+      DEVICE_PROFILE.chunkSize,
+      DEVICE_PROFILE.renderDistance,
+    );
     const initialWorld = world.update({ x: 0, z: 18 });
 
     if (!initialWorld) {
@@ -50,13 +72,19 @@ async function start(): Promise<void> {
       backend = "WebGL 2";
     }
 
-    const camera = new FirstPersonCamera(activeCanvas, world);
+    const camera = new FirstPersonCamera(
+      activeCanvas,
+      world,
+      DEVICE_PROFILE.isMobile,
+      ACTIVE_GAME_MODE,
+    );
     camera.spawnAt(0, 18);
     camera.start();
-    const inventory = new Inventory();
+    const inventory = new Inventory(ACTIVE_GAME_MODE);
+    const atmosphere = new Atmosphere();
     const showWorldStatus = (update: TerrainStreamUpdate): void => {
       statusMessage.textContent =
-        `Infinite · ${update.loadedChunkCount} chunks · ` +
+        `Creative test · Infinite · ${update.loadedChunkCount} chunks · ` +
         `${update.mesh.biomeCount} biomes · ` +
         `${update.mesh.riverColumnCount} river cells · ` +
         `${update.mesh.mountainColumnCount} mountain cells · ` +
@@ -68,21 +96,51 @@ async function start(): Promise<void> {
       renderer.updateMesh(update.mesh);
       showWorldStatus(update);
     };
+    let streamRequestId = 0;
     const survival = new SurvivalController(
       activeCanvas,
       world,
       camera,
       inventory,
       applyWorldUpdate,
+      ACTIVE_GAME_MODE,
     );
+    if (DEVICE_PROFILE.isMobile) {
+      new MobileControls(
+        camera,
+        survival,
+        inventory,
+        atmosphere,
+      );
+    }
     renderer.start(
       camera,
+      atmosphere,
       () => {
         const [x, , z] = camera.position();
-        const update = world.update({ x, z });
+        const update = world.requestUpdate({ x, z });
 
         if (update) {
-          applyWorldUpdate(update);
+          const requestId = ++streamRequestId;
+          statusMessage.dataset.streaming = "true";
+          if (!statusMessage.textContent?.endsWith(" · loading…")) {
+            statusMessage.textContent += " · loading…";
+          }
+          void update
+            .then((worldUpdate) => {
+              if (requestId === streamRequestId && worldUpdate) {
+                applyWorldUpdate(worldUpdate);
+              }
+            })
+            .catch((error) => {
+              console.error("Background terrain streaming failed.", error);
+              statusMessage.textContent = "Terrain streaming failed.";
+            })
+            .finally(() => {
+              if (requestId === streamRequestId) {
+                delete statusMessage.dataset.streaming;
+              }
+            });
         }
         survival.update();
       },

@@ -1,4 +1,5 @@
 import { TerrainMaterial } from "../geometry/terrainChunk.ts";
+import type { GameMode } from "./gameMode.ts";
 
 export type InventoryItem = Readonly<{
   material: TerrainMaterial;
@@ -39,11 +40,12 @@ export class Inventory {
   readonly #panel: HTMLElement;
   readonly #inventoryCounts: HTMLElement;
   readonly #craftButton: HTMLButtonElement;
+  readonly #isCreative: boolean;
 
   #selectedIndex = 0;
   #isOpen = false;
 
-  constructor() {
+  constructor(mode: GameMode = "survival") {
     const hotbar = document.querySelector<HTMLElement>("#hotbar");
     const panel = document.querySelector<HTMLElement>("#inventory-panel");
     const inventoryCounts =
@@ -59,6 +61,7 @@ export class Inventory {
     this.#panel = panel;
     this.#inventoryCounts = inventoryCounts;
     this.#craftButton = craftButton;
+    this.#isCreative = mode === "creative";
     this.#counts.set(TerrainMaterial.Dirt, 8);
 
     document.addEventListener("keydown", (event) => {
@@ -86,15 +89,24 @@ export class Inventory {
   }
 
   count(material: TerrainMaterial): number {
+    if (this.#isCreative && HOTBAR_ITEMS.some((item) => item.material === material)) {
+      return Number.POSITIVE_INFINITY;
+    }
     return this.#counts.get(material) ?? 0;
   }
 
   add(material: TerrainMaterial, amount = 1): void {
+    if (this.#isCreative) {
+      return;
+    }
     this.#counts.set(material, this.count(material) + amount);
     this.render();
   }
 
   remove(material: TerrainMaterial, amount = 1): boolean {
+    if (this.#isCreative) {
+      return true;
+    }
     if (this.count(material) < amount) {
       return false;
     }
@@ -116,6 +128,9 @@ export class Inventory {
   }
 
   craftPlanks(): boolean {
+    if (this.#isCreative) {
+      return true;
+    }
     if (!this.remove(TerrainMaterial.Wood, 1)) {
       return false;
     }
@@ -135,6 +150,9 @@ export class Inventory {
   }
 
   render(): void {
+    const countLabel = (material: TerrainMaterial): string =>
+      this.#isCreative ? "∞" : String(this.count(material));
+
     this.#hotbar.replaceChildren(
       ...HOTBAR_ITEMS.map((item, index) => {
         const slot = document.createElement("button");
@@ -144,7 +162,7 @@ export class Inventory {
         slot.innerHTML =
           `<span class="slot-key">${index + 1}</span>` +
           `<span class="slot-name">${item.shortName}</span>` +
-          `<strong>${this.count(item.material)}</strong>`;
+          `<strong>${countLabel(item.material)}</strong>`;
         slot.title = item.name;
         slot.addEventListener("click", () => this.select(index));
         return slot;
@@ -154,10 +172,14 @@ export class Inventory {
     this.#inventoryCounts.replaceChildren(
       ...HOTBAR_ITEMS.map((item) => {
         const row = document.createElement("div");
-        row.innerHTML = `<span>${item.name}</span><strong>${this.count(item.material)}</strong>`;
+        row.innerHTML = `<span>${item.name}</span><strong>${countLabel(item.material)}</strong>`;
         return row;
       }),
     );
-    this.#craftButton.disabled = this.count(TerrainMaterial.Wood) < 1;
+    this.#craftButton.disabled =
+      this.#isCreative || this.count(TerrainMaterial.Wood) < 1;
+    this.#craftButton.textContent = this.#isCreative
+      ? "Unlimited"
+      : "Craft";
   }
 }

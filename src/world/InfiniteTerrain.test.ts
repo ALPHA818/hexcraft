@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   axialToWorld,
   biomeAt,
+  buildTerrainStream,
   caveAt,
   chunkAtAxial,
   generateTerrainColumn,
@@ -78,9 +79,27 @@ describe("infinite terrain", () => {
     expect(visible.some((column) => column.river)).toBe(true);
     expect(visible.some((column) => column.mountain)).toBe(true);
     expect(visible.some((column) => (column.caveAirCount ?? 0) > 0)).toBe(true);
+    expect(buildTerrainStream({ q: 0, r: 0 }, 8, 4).update.mesh.translucentVertexCount)
+      .toBeGreaterThan(0);
     expect(
       generateTerrainColumn(0, 0).blocks?.length,
     ).toBeGreaterThan(0);
+  });
+
+  it("applies edits while building a streamed terrain window", () => {
+    const result = buildTerrainStream(
+      { q: 0, r: 0 },
+      2,
+      0,
+      42,
+      [[0, 0, 30, TerrainMaterial.Planks]],
+    );
+    const edited = result.columns.find(
+      (column) => column.q === 0 && column.r === 0,
+    );
+
+    expect(edited?.blocks?.[30]).toBe(TerrainMaterial.Planks);
+    expect(result.update.loadedChunkCount).toBe(1);
   });
 
   it("opens some cave systems to daylight", () => {
@@ -136,6 +155,33 @@ describe("infinite terrain", () => {
 
     expect(hit?.voxel).toEqual({ q: 0, r: 0, level: highest });
     expect(hit?.adjacent?.level).toBe(highest + 1);
+  });
+
+  it("keeps leaves solid but lets unsupported leaves decay", () => {
+    const terrain = new InfiniteTerrain(42, 2, 0);
+    terrain.update({ x: 0, z: 0 });
+
+    terrain.setBlock({ q: 0, r: 0, level: 30 }, TerrainMaterial.Wood);
+    terrain.setBlock({ q: 1, r: 0, level: 30 }, TerrainMaterial.Leaves);
+
+    expect(terrain.isSolidAt(1, 0, 30)).toBe(true);
+
+    terrain.setBlock({ q: 0, r: 0, level: 30 }, TerrainMaterial.Air);
+
+    expect(terrain.materialAt(1, 0, 30)).toBe(TerrainMaterial.Air);
+  });
+
+  it("lets local water flow into nearby mined air", () => {
+    const terrain = new InfiniteTerrain(42, 2, 0);
+    terrain.update({ x: 0, z: 0 });
+
+    terrain.setBlock({ q: 0, r: 0, level: 29 }, TerrainMaterial.Stone);
+    terrain.setBlock({ q: 1, r: 0, level: 29 }, TerrainMaterial.Stone);
+    terrain.setBlock({ q: 0, r: 0, level: 30 }, TerrainMaterial.Water);
+    terrain.setBlock({ q: 1, r: 0, level: 30 }, TerrainMaterial.Air);
+
+    expect(terrain.isSolidAt(1, 0, 30)).toBe(false);
+    expect(terrain.isFluidAt(1, 0, 30)).toBe(true);
   });
 
   it("adds an invisible neighbor ring around the streamed window", () => {

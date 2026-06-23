@@ -6,6 +6,8 @@ export type MeshData = Readonly<{
   vertices: Float32Array;
   vertexCount: number;
   floatsPerVertex: number;
+  opaqueVertexCount?: number;
+  translucentVertexCount?: number;
 }>;
 
 export const FLOATS_PER_VERTEX = 11;
@@ -114,5 +116,7 @@ export function createHexPrism(radius = 1, height = 1.5): MeshData {
     vertices: new Float32Array(output),
     vertexCount: output.length / FLOATS_PER_VERTEX,
     floatsPerVertex: FLOATS_PER_VERTEX,
+    opaqueVertexCount: output.length / FLOATS_PER_VERTEX,
+    translucentVertexCount: 0,
   };
 }

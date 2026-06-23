@@ -105,13 +105,14 @@ function setPixel(
   red: number,
   green: number,
   blue: number,
+  alpha = 255,
 ): void {
   const atlasX = tile * BLOCK_TEXTURE_TILE_SIZE + x;
   const index = (y * BLOCK_TEXTURE_ATLAS_WIDTH + atlasX) * 4;
   pixels[index] = Math.max(0, Math.min(255, Math.round(red)));
   pixels[index + 1] = Math.max(0, Math.min(255, Math.round(green)));
   pixels[index + 2] = Math.max(0, Math.min(255, Math.round(blue)));
-  pixels[index + 3] = 255;
+  pixels[index + 3] = Math.max(0, Math.min(255, Math.round(alpha)));
 }
 
 export function createBlockTextureAtlas(): TextureAtlasData {
@@ -289,6 +290,7 @@ export function createBlockTextureAtlas(): TextureAtlasData {
         30 + waterShade * 0.25,
         111 + waterShade * 0.72,
         158 + waterShade,
+        178,
       );
 
       const caveCell = sampleHexCell(x, y, 229);
@@ -330,6 +332,13 @@ export function createBlockTextureAtlas(): TextureAtlasData {
       if (leafCell.edge) {
         leafShade -= 34;
       }
+      const leafSpeckle = noise(x, y, 331);
+      const leafVein =
+        Math.abs(((x + y * 2) % 17) - 8) < 1 ||
+        Math.abs(((x * 2 - y) % 19) - 9) < 1;
+      const leafHole =
+        !leafVein &&
+        (leafSpeckle > 0.78 || (leafCell.edge && leafCell.value < 0.48));
       setPixel(
         pixels,
         BlockTexture.Leaves,
@@ -338,6 +347,7 @@ export function createBlockTextureAtlas(): TextureAtlasData {
         40 + leafShade * 0.32,
         112 + leafShade,
         46 + leafShade * 0.45,
+        leafHole ? 0 : 255,
       );
 
       const plankRow = Math.floor(y / 12);

@@ -14,6 +14,7 @@ import {
   type VoxelRaycastHit,
 } from "../world/InfiniteTerrain.ts";
 import { Inventory, minedDrop } from "./Inventory.ts";
+import type { GameMode } from "./gameMode.ts";
 
 export class SurvivalController {
   readonly #canvas: HTMLCanvasElement;
@@ -22,6 +23,7 @@ export class SurvivalController {
   readonly #inventory: Inventory;
   readonly #crosshair: HTMLElement;
   readonly #onWorldUpdate: (update: TerrainStreamUpdate) => void;
+  readonly #isCreative: boolean;
 
   #target: VoxelRaycastHit | null = null;
 
@@ -31,6 +33,7 @@ export class SurvivalController {
     camera: FirstPersonCamera,
     inventory: Inventory,
     onWorldUpdate: (update: TerrainStreamUpdate) => void,
+    mode: GameMode = "survival",
   ) {
     const crosshair = document.querySelector<HTMLElement>("#crosshair");
     if (!crosshair) {
@@ -43,16 +46,17 @@ export class SurvivalController {
     this.#inventory = inventory;
     this.#crosshair = crosshair;
     this.#onWorldUpdate = onWorldUpdate;
+    this.#isCreative = mode === "creative";
 
     this.#canvas.addEventListener("mousedown", (event) => {
-      if (!this.#camera.isPointerLocked()) {
+      if (!this.#camera.isInputActive()) {
         return;
       }
 
       if (event.button === 0) {
-        this.#mine();
+        this.mine();
       } else if (event.button === 2) {
-        this.#place();
+        this.place();
       }
     });
 
@@ -77,30 +81,39 @@ export class SurvivalController {
       : "";
   }
 
-  #mine(): void {
+  mine(): void {
     if (!this.#target) {
       return;
     }
 
     const drop = minedDrop(this.#target.material);
-    const update = this.#world.setBlock(
+    const update = this.#world.setBlockAsync(
       this.#target.voxel,
       TerrainMaterial.Air,
     );
 
-    if (drop !== null) {
+    if (!this.#isCreative && drop !== null) {
       this.#inventory.add(drop);
     }
     if (update) {
-      this.#onWorldUpdate(update);
+      void update
+        .then((worldUpdate) => {
+          if (worldUpdate) {
+            this.#onWorldUpdate(worldUpdate);
+          }
+        })
+        .catch((error) => console.error("Terrain remesh failed.", error));
     }
   }
 
-  #place(): void {
+  place(): void {
     const adjacent = this.#target?.adjacent;
     const material = this.#inventory.selectedMaterial();
 
-    if (!adjacent || this.#inventory.count(material) === 0) {
+    if (
+      !adjacent ||
+      (!this.#isCreative && this.#inventory.count(material) === 0)
+    ) {
       return;
     }
 
@@ -121,13 +134,19 @@ export class SurvivalController {
       return;
     }
 
-    if (!this.#inventory.remove(material)) {
+    if (!this.#isCreative && !this.#inventory.remove(material)) {
       return;
     }
 
-    const update = this.#world.setBlock(adjacent, material);
+    const update = this.#world.setBlockAsync(adjacent, material);
     if (update) {
-      this.#onWorldUpdate(update);
+      void update
+        .then((worldUpdate) => {
+          if (worldUpdate) {
+            this.#onWorldUpdate(worldUpdate);
+          }
+        })
+        .catch((error) => console.error("Terrain remesh failed.", error));
     }
   }
 }

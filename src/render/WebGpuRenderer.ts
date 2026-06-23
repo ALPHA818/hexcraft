@@ -1,15 +1,23 @@
 import type { MeshData } from "../geometry/hexPrism.ts";
+import type { Atmosphere } from "../environment/Atmosphere.ts";
 import type { FirstPersonCamera } from "../input/FirstPersonCamera.ts";
+import { DEVICE_PROFILE } from "../platform/deviceProfile.ts";
 import { createBlockTextureAtlas } from "./blockTextureAtlas.ts";
 import {
   identity,
   multiply,
   perspective,
 } from "../math/mat4.ts";
-import { hexPrismShader } from "./hexPrism.wgsl.ts";
+import {
+  hexPrismShader,
+  shadowShader,
+} from "./hexPrism.wgsl.ts";
+import { lightViewProjection } from "./lighting.ts";
 
 const FLOAT_SIZE = Float32Array.BYTES_PER_ELEMENT;
 const DEPTH_FORMAT: GPUTextureFormat = "depth24plus";
+const SHADOW_FORMAT: GPUTextureFormat = "depth32float";
+const SHADOW_MAP_SIZE = DEVICE_PROFILE.shadowMapSize;
 // WebGPU bit flags. TypeScript 6 declares the API types but not these runtime
 // constant objects, so keeping the tiny set we use here avoids duplicate types.
 const BUFFER_USAGE_COPY_DST = 0x0008;
@@ -26,9 +34,13 @@ export class WebGpuRenderer {
   readonly #context: GPUCanvasContext;
   readonly #device: GPUDevice;
   readonly #pipeline: GPURenderPipeline;
+  readonly #transparentPipeline: GPURenderPipeline;
+  readonly #shadowPipeline: GPURenderPipeline;
+  readonly #shadowTexture: GPUTexture;
+  readonly #shadowBindGroup: GPUBindGroup;
   readonly #uniformBuffer: GPUBuffer;
   readonly #uniformBindGroup: GPUBindGroup;
-  readonly #uniformData = new Float32Array(40);
+  readonly #uniformData = new Float32Array(68);
 
   #depthTexture: GPUTexture | null = null;
   #depthWidth = 0;
@@ -37,7 +49,8 @@ export class WebGpuRenderer {
   #lastFrameTime = 0;
   #vertexBuffer: GPUBuffer;
   #vertexBufferCapacity: number;
-  #vertexCount: number;
+  #opaqueVertexCount: number;
+  #translucentVertexCount: number;
 
   private constructor(
     canvas: HTMLCanvasElement,
@@ -50,7 +63,8 @@ export class WebGpuRenderer {
     this.#context = context;
     this.#device = device;
 
-    this.#vertexCount = mesh.vertexCount;
+    this.#opaqueVertexCount = mesh.opaqueVertexCount ?? mesh.vertexCount;
+    this.#translucentVertexCount = mesh.translucentVertexCount ?? 0;
     this.#vertexBufferCapacity = mesh.vertices.byteLength;
     this.#vertexBuffer = device.createBuffer({
       label: "Hex prism vertex buffer",
@@ -90,6 +104,18 @@ export class WebGpuRenderer {
       minFilter: "linear",
       mipmapFilter: "linear",
     });
+    this.#shadowTexture = device.createTexture({
+      label: "Directional shadow map",
+      size: [SHADOW_MAP_SIZE, SHADOW_MAP_SIZE],
+      format: SHADOW_FORMAT,
+      usage: TEXTURE_USAGE_RENDER_ATTACHMENT | TEXTURE_USAGE_BINDING,
+    });
+    const shadowSampler = device.createSampler({
+      label: "Shadow comparison sampler",
+      compare: "less",
+      magFilter: "linear",
+      minFilter: "linear",
+    });
 
     const bindGroupLayout = device.createBindGroupLayout({
       label: "Hex prism bind group layout",
@@ -109,6 +135,16 @@ export class WebGpuRenderer {
           visibility: SHADER_STAGE_FRAGMENT,
           texture: { sampleType: "float" },
         },
+        {
+          binding: 3,
+          visibility: SHADER_STAGE_FRAGMENT,
+          sampler: { type: "comparison" },
+        },
+        {
+          binding: 4,
+          visibility: SHADER_STAGE_FRAGMENT,
+          texture: { sampleType: "depth" },
+        },
       ],
     });
 
@@ -119,12 +155,67 @@ export class WebGpuRenderer {
         { binding: 0, resource: { buffer: this.#uniformBuffer } },
         { binding: 1, resource: blockSampler },
         { binding: 2, resource: blockTexture.createView() },
+        { binding: 3, resource: shadowSampler },
+        { binding: 4, resource: this.#shadowTexture.createView() },
       ],
     });
 
     const shader = device.createShaderModule({
       label: "Hex prism shader",
       code: hexPrismShader,
+    });
+    const shadowModule = device.createShaderModule({
+      label: "Shadow map shader",
+      code: shadowShader,
+    });
+    const shadowBindGroupLayout = device.createBindGroupLayout({
+      label: "Shadow bind group layout",
+      entries: [
+        {
+          binding: 0,
+          visibility: SHADER_STAGE_VERTEX,
+          buffer: { type: "uniform" },
+        },
+      ],
+    });
+    this.#shadowBindGroup = device.createBindGroup({
+      label: "Shadow bind group",
+      layout: shadowBindGroupLayout,
+      entries: [{ binding: 0, resource: { buffer: this.#uniformBuffer } }],
+    });
+    this.#shadowPipeline = device.createRenderPipeline({
+      label: "Directional shadow pipeline",
+      layout: device.createPipelineLayout({
+        bindGroupLayouts: [shadowBindGroupLayout],
+      }),
+      vertex: {
+        module: shadowModule,
+        entryPoint: "shadow_vertex",
+        buffers: [
+          {
+            arrayStride: mesh.floatsPerVertex * FLOAT_SIZE,
+            attributes: [
+              {
+                shaderLocation: 0,
+                offset: 0,
+                format: "float32x3",
+              },
+            ],
+          },
+        ],
+      },
+      primitive: {
+        topology: "triangle-list",
+        frontFace: "ccw",
+        cullMode: "front",
+      },
+      depthStencil: {
+        format: SHADOW_FORMAT,
+        depthWriteEnabled: true,
+        depthCompare: "less",
+        depthBias: 2,
+        depthBiasSlopeScale: 2,
+      },
     });
 
     this.#pipeline = device.createRenderPipeline({
@@ -179,6 +270,75 @@ export class WebGpuRenderer {
         depthCompare: "less",
       },
     });
+
+    this.#transparentPipeline = device.createRenderPipeline({
+      label: "Transparent water pipeline",
+      layout: device.createPipelineLayout({
+        bindGroupLayouts: [bindGroupLayout],
+      }),
+      vertex: {
+        module: shader,
+        entryPoint: "vertex_main",
+        buffers: [
+          {
+            arrayStride: mesh.floatsPerVertex * FLOAT_SIZE,
+            attributes: [
+              {
+                shaderLocation: 0,
+                offset: 0,
+                format: "float32x3",
+              },
+              {
+                shaderLocation: 1,
+                offset: 3 * FLOAT_SIZE,
+                format: "float32x3",
+              },
+              {
+                shaderLocation: 2,
+                offset: 6 * FLOAT_SIZE,
+                format: "float32x3",
+              },
+              {
+                shaderLocation: 3,
+                offset: 9 * FLOAT_SIZE,
+                format: "float32x2",
+              },
+            ],
+          },
+        ],
+      },
+      fragment: {
+        module: shader,
+        entryPoint: "fragment_main",
+        targets: [
+          {
+            format,
+            blend: {
+              color: {
+                srcFactor: "src-alpha",
+                dstFactor: "one-minus-src-alpha",
+                operation: "add",
+              },
+              alpha: {
+                srcFactor: "one",
+                dstFactor: "one-minus-src-alpha",
+                operation: "add",
+              },
+            },
+          },
+        ],
+      },
+      primitive: {
+        topology: "triangle-list",
+        frontFace: "ccw",
+        cullMode: "back",
+      },
+      depthStencil: {
+        format: DEPTH_FORMAT,
+        depthWriteEnabled: false,
+        depthCompare: "less",
+      },
+    });
   }
 
   static async create(
@@ -218,6 +378,7 @@ export class WebGpuRenderer {
 
   start(
     camera: FirstPersonCamera,
+    atmosphere: Atmosphere,
     onFrame: () => void,
     onDeviceLost: (reason: string) => void,
   ): void {
@@ -231,8 +392,9 @@ export class WebGpuRenderer {
         this.#lastFrameTime === 0 ? 0 : (time - this.#lastFrameTime) / 1000;
       this.#lastFrameTime = time;
       camera.update(deltaSeconds);
+      atmosphere.update(deltaSeconds);
       onFrame();
-      this.#render(camera);
+      this.#render(camera, atmosphere);
       this.#animationFrame = requestAnimationFrame(renderFrame);
     };
 
@@ -251,11 +413,15 @@ export class WebGpuRenderer {
     }
 
     this.#device.queue.writeBuffer(this.#vertexBuffer, 0, mesh.vertices);
-    this.#vertexCount = mesh.vertexCount;
+    this.#opaqueVertexCount = mesh.opaqueVertexCount ?? mesh.vertexCount;
+    this.#translucentVertexCount = mesh.translucentVertexCount ?? 0;
   }
 
   #resize(): void {
-    const scale = Math.min(window.devicePixelRatio, 2);
+    const scale = Math.min(
+      window.devicePixelRatio,
+      DEVICE_PROFILE.maxPixelRatio,
+    );
     const width = Math.max(
       1,
       Math.floor(this.#canvas.clientWidth * scale),
@@ -285,7 +451,7 @@ export class WebGpuRenderer {
     this.#depthHeight = height;
   }
 
-  #render(camera: FirstPersonCamera): void {
+  #render(camera: FirstPersonCamera, atmosphere: Atmosphere): void {
     this.#resize();
 
     if (!this.#depthTexture) {
@@ -304,11 +470,29 @@ export class WebGpuRenderer {
       projection,
       multiply(view, model),
     );
+    const environment = atmosphere.state();
+    const lightMatrix = lightViewProjection(
+      camera.position(),
+      environment,
+      false,
+    );
 
     this.#uniformData.set(modelViewProjection, 0);
     this.#uniformData.set(model, 16);
-    this.#uniformData.set([0.35, -1, 0.5, 0], 32);
-    this.#uniformData.set(camera.position(), 36);
+    this.#uniformData.set(lightMatrix, 32);
+    this.#uniformData.set([...environment.lightDirection, 0], 48);
+    this.#uniformData.set([...camera.position(), 0], 52);
+    this.#uniformData.set([...environment.lightColor, 0], 56);
+    this.#uniformData.set([...environment.fogColor, 0], 60);
+    this.#uniformData.set(
+      [
+        environment.ambient,
+        environment.weatherIntensity,
+        environment.timeSeconds,
+        environment.daylight,
+      ],
+      64,
+    );
     this.#device.queue.writeBuffer(
       this.#uniformBuffer,
       0,
@@ -318,6 +502,22 @@ export class WebGpuRenderer {
     const encoder = this.#device.createCommandEncoder({
       label: "Main render encoder",
     });
+    const shadowPass = encoder.beginRenderPass({
+      label: "Directional shadow pass",
+      colorAttachments: [],
+      depthStencilAttachment: {
+        view: this.#shadowTexture.createView(),
+        depthClearValue: 1,
+        depthLoadOp: "clear",
+        depthStoreOp: "store",
+      },
+    });
+    shadowPass.setPipeline(this.#shadowPipeline);
+    shadowPass.setBindGroup(0, this.#shadowBindGroup);
+    shadowPass.setVertexBuffer(0, this.#vertexBuffer);
+    shadowPass.draw(this.#opaqueVertexCount);
+    shadowPass.end();
+
     const pass = encoder.beginRenderPass({
       label: "Main render pass",
       colorAttachments: [
@@ -339,7 +539,11 @@ export class WebGpuRenderer {
     pass.setPipeline(this.#pipeline);
     pass.setBindGroup(0, this.#uniformBindGroup);
     pass.setVertexBuffer(0, this.#vertexBuffer);
-    pass.draw(this.#vertexCount);
+    pass.draw(this.#opaqueVertexCount);
+    if (this.#translucentVertexCount > 0) {
+      pass.setPipeline(this.#transparentPipeline);
+      pass.draw(this.#translucentVertexCount, 1, this.#opaqueVertexCount);
+    }
     pass.end();
 
     this.#device.queue.submit([encoder.finish()]);

@@ -10,6 +10,10 @@
   box-sizing: border-box;
 }
 
+[hidden] {
+  display: none !important;
+}
+
 html,
 body {
   width: 100%;
@@ -19,9 +23,16 @@ body {
 
 body {
   overflow: hidden;
+  overscroll-behavior: none;
+  user-select: none;
+  -webkit-user-select: none;
 }
 
 #sky,
+#stars,
+#moon,
+#clouds,
+#weather,
 #game {
   position: fixed;
   inset: 0;
@@ -29,11 +40,113 @@ body {
   height: 100%;
 }
 
-#sky {
+#stars {
+  z-index: 0;
   background:
-    radial-gradient(circle at 78% 18%, #fffbd2 0 2.3%, #fff1a8 2.5%, transparent 7%),
-    linear-gradient(#2f75b8 0%, #78b8df 54%, #c7e3eb 82%, #dce9de 100%);
+    radial-gradient(circle at 12% 18%, #fff 0 1px, transparent 1.5px),
+    radial-gradient(circle at 37% 43%, #dce8ff 0 1px, transparent 1.6px),
+    radial-gradient(circle at 72% 23%, #fff7cf 0 1.2px, transparent 1.8px),
+    radial-gradient(circle at 88% 61%, #fff 0 0.9px, transparent 1.4px),
+    radial-gradient(circle at 54% 72%, #d8e5ff 0 1px, transparent 1.5px);
+  background-size:
+    13rem 11rem,
+    17rem 14rem,
+    19rem 12rem,
+    11rem 16rem,
+    23rem 15rem;
+  opacity: 0;
   pointer-events: none;
+  transition: opacity 1.5s linear;
+  animation: stars-twinkle 4s ease-in-out infinite alternate;
+}
+
+#moon {
+  z-index: 0;
+  width: 0;
+  height: 0;
+  inset: auto;
+  background: none;
+  box-shadow: none;
+  opacity: 0;
+  pointer-events: none;
+  transition:
+    top 1s linear,
+    left 1s linear,
+    opacity 1.5s linear;
+}
+
+#moon::before {
+  position: absolute;
+  top: -1.9rem;
+  left: -1.9rem;
+  width: 3.8rem;
+  height: 3.8rem;
+  border-radius: 999px;
+  background:
+    radial-gradient(circle at 38% 35%, rgb(255 255 255 / 28%) 0 7%, transparent 8%),
+    radial-gradient(circle at 62% 58%, rgb(80 98 125 / 22%) 0 11%, transparent 12%),
+    radial-gradient(circle at 42% 40%, #f1f3df, #b8c7d5 72%);
+  box-shadow:
+    0 0 1.5rem rgb(190 217 255 / 58%),
+    0 0 4rem rgb(120 169 235 / 28%);
+  content: "";
+}
+
+@keyframes stars-twinkle {
+  to {
+    filter: brightness(1.35);
+  }
+}
+
+#sky {
+  --sky-top: #2f75b8;
+  --sky-horizon: #c7e3eb;
+  --sun-x: 78%;
+  --sun-y: 18%;
+  --sun-opacity: 1;
+  background:
+    radial-gradient(
+      circle at var(--sun-x) var(--sun-y),
+      rgb(255 251 210 / var(--sun-opacity)) 0 2.2%,
+      rgb(255 225 135 / calc(var(--sun-opacity) * 0.7)) 2.4%,
+      transparent 7%
+    ),
+    linear-gradient(var(--sky-top) 0%, var(--sky-horizon) 82%, #dce9de 100%);
+  pointer-events: none;
+  transition: background 1s linear;
+}
+
+#clouds {
+  z-index: 0;
+  width: 180%;
+  height: 55%;
+  background:
+    radial-gradient(ellipse at 8% 42%, #fff 0 7%, transparent 7.5%),
+    radial-gradient(ellipse at 18% 34%, #fff 0 9%, transparent 9.5%),
+    radial-gradient(ellipse at 31% 49%, #fff 0 8%, transparent 8.5%),
+    radial-gradient(ellipse at 49% 28%, #fff 0 10%, transparent 10.5%),
+    radial-gradient(ellipse at 67% 45%, #fff 0 8%, transparent 8.5%),
+    radial-gradient(ellipse at 84% 31%, #fff 0 10%, transparent 10.5%);
+  background-size: 58rem 18rem;
+  mix-blend-mode: screen;
+  transform: translateX(-18%);
+  animation: clouds-drift 70s linear infinite;
+  pointer-events: none;
+  transition:
+    opacity 1.5s ease,
+    filter 1.5s ease;
+}
+
+#weather {
+  z-index: 2;
+  pointer-events: none;
+  background: rgb(255 255 255 / var(--lightning, 0));
+}
+
+@keyframes clouds-drift {
+  to {
+    transform: translateX(-2%);
+  }
 }
 
 #game {
@@ -41,6 +154,7 @@ body {
   z-index: 1;
   background: transparent;
   cursor: crosshair;
+  touch-action: none;
 }
 
 #status {
@@ -54,6 +168,20 @@ body {
   backdrop-filter: blur(0.75rem);
   pointer-events: none;
   z-index: 3;
+}
+
+#weather-status {
+  color: #d6e9ef;
+  font-size: 0.75rem;
+}
+
+#mode-status {
+  display: inline-block;
+  margin: 0.18rem 0;
+  color: #f6d76b;
+  font-size: 0.72rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
 }
 
 h1,
@@ -304,4 +432,149 @@ p {
 
 .inventory-open #hotbar {
   bottom: 0.8rem;
+}
+
+#mobile-controls {
+  position: fixed;
+  inset: 0;
+  z-index: 5;
+  pointer-events: none;
+  touch-action: none;
+}
+
+body:not(.mobile-game) #mobile-controls {
+  display: none !important;
+}
+
+#look-zone {
+  position: absolute;
+  inset: 0 0 0 42%;
+  pointer-events: auto;
+  touch-action: none;
+}
+
+#move-stick {
+  position: absolute;
+  bottom: max(1rem, env(safe-area-inset-bottom));
+  left: max(1rem, env(safe-area-inset-left));
+  width: 7.4rem;
+  height: 7.4rem;
+  border: 2px solid rgb(255 255 255 / 30%);
+  border-radius: 50%;
+  background: rgb(5 15 20 / 38%);
+  box-shadow: inset 0 0 2rem rgb(0 0 0 / 28%);
+  pointer-events: auto;
+  touch-action: none;
+}
+
+#move-knob {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 3.2rem;
+  height: 3.2rem;
+  border: 2px solid rgb(220 255 183 / 55%);
+  border-radius: 50%;
+  background: rgb(93 145 62 / 72%);
+  box-shadow: 0 0.3rem 0.8rem rgb(0 0 0 / 35%);
+  transform: translate(-50%, -50%);
+}
+
+#touch-actions {
+  position: absolute;
+  right: max(1rem, env(safe-area-inset-right));
+  bottom: max(1rem, env(safe-area-inset-bottom));
+  display: grid;
+  grid-template-columns: repeat(2, 4.2rem);
+  gap: 0.55rem;
+  pointer-events: auto;
+}
+
+#touch-actions button,
+#touch-menu button {
+  min-height: 3.7rem;
+  border: 2px solid rgb(255 255 255 / 34%);
+  border-radius: 1rem;
+  color: white;
+  font: 700 0.78rem/1 system-ui, sans-serif;
+  background: rgb(6 20 27 / 68%);
+  box-shadow: 0 0.35rem 1rem rgb(0 0 0 / 28%);
+  backdrop-filter: blur(0.4rem);
+  touch-action: manipulation;
+}
+
+#touch-menu {
+  position: absolute;
+  top: max(4.15rem, calc(env(safe-area-inset-top) + 3.5rem));
+  right: max(0.65rem, env(safe-area-inset-right));
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  pointer-events: auto;
+}
+
+#touch-menu button {
+  min-width: 3.3rem;
+  min-height: 2.65rem;
+}
+
+.inventory-open #mobile-controls {
+  display: none;
+}
+
+.mobile-game #status,
+.mobile-game #controls {
+  display: none;
+}
+
+.mobile-game #crosshair {
+  opacity: 1;
+}
+
+.mobile-game #hotbar {
+  top: max(0.65rem, env(safe-area-inset-top));
+  bottom: auto;
+  gap: 0.18rem;
+}
+
+.mobile-game .hotbar-slot {
+  width: 2.85rem;
+  height: 2.6rem;
+  padding: 0.75rem 0.15rem 0.1rem;
+  border-width: 1px;
+  border-radius: 0.4rem;
+}
+
+.mobile-game .hotbar-slot strong {
+  right: 0.18rem;
+  bottom: 0.08rem;
+  font-size: 0.72rem;
+}
+
+.mobile-game .slot-key,
+.mobile-game .slot-name {
+  font-size: 0.58rem;
+}
+
+.mobile-game #inventory-panel {
+  width: min(94vw, 31rem);
+  max-height: calc(100dvh - 2rem);
+  overflow: auto;
+  padding: 1rem;
+}
+
+@media (orientation: portrait) {
+  .mobile-game #move-stick {
+    width: 6.7rem;
+    height: 6.7rem;
+  }
+
+  .mobile-game #touch-actions {
+    grid-template-columns: repeat(2, 3.7rem);
+  }
+
+  .mobile-game #touch-actions button {
+    min-height: 3.3rem;
+  }
+
 }

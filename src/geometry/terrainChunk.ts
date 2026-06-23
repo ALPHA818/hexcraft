@@ -23,6 +23,30 @@ export const enum TerrainMaterial {
   Planks = 11,
 }
 
+export function isFluidMaterial(material: TerrainMaterial): boolean {
+  return material === TerrainMaterial.Water;
+}
+
+export function isCollisionSolidMaterial(
+  material: TerrainMaterial,
+): boolean {
+  return material !== TerrainMaterial.Air && !isFluidMaterial(material);
+}
+
+export function isRaycastTargetMaterial(
+  material: TerrainMaterial,
+): boolean {
+  return isCollisionSolidMaterial(material);
+}
+
+export function isTransparentMaterial(material: TerrainMaterial): boolean {
+  return (
+    material === TerrainMaterial.Air ||
+    material === TerrainMaterial.Water ||
+    material === TerrainMaterial.Leaves
+  );
+}
+
 export type TerrainBiome =
   | "grassland"
   | "forest"
@@ -205,12 +229,23 @@ function faceIsExposed(
   adjacent: TerrainMaterial,
 ): boolean {
   if (material === TerrainMaterial.Water) {
-    return adjacent === TerrainMaterial.Air;
+    return (
+      adjacent === TerrainMaterial.Air ||
+      adjacent === TerrainMaterial.Leaves
+    );
+  }
+
+  if (material === TerrainMaterial.Leaves) {
+    return (
+      adjacent === TerrainMaterial.Air ||
+      adjacent === TerrainMaterial.Water
+    );
   }
 
   return (
     adjacent === TerrainMaterial.Air ||
-    adjacent === TerrainMaterial.Water
+    adjacent === TerrainMaterial.Water ||
+    adjacent === TerrainMaterial.Leaves
   );
 }
 
@@ -219,7 +254,8 @@ export function buildTerrainChunk(
   blockRadius = TERRAIN_BLOCK_RADIUS,
   blockHeight = TERRAIN_BLOCK_HEIGHT,
 ): TerrainChunkMesh {
-  const output: number[] = [];
+  const opaqueOutput: number[] = [];
+  const translucentOutput: number[] = [];
   const columnMap = new Map<string, TerrainColumn>();
   const biomes = new Set<TerrainBiome>();
   let blockCount = 0;
@@ -263,6 +299,11 @@ export function buildTerrainChunk(
       if (material === TerrainMaterial.Air) {
         continue;
       }
+
+      const output =
+        material === TerrainMaterial.Water
+          ? translucentOutput
+          : opaqueOutput;
 
       if (material === TerrainMaterial.Water) {
         waterBlockCount += 1;
@@ -392,10 +433,21 @@ export function buildTerrainChunk(
     }
   }
 
+  const opaqueVertexCount = opaqueOutput.length / FLOATS_PER_VERTEX;
+  const translucentVertexCount =
+    translucentOutput.length / FLOATS_PER_VERTEX;
+  const vertices = new Float32Array(
+    opaqueOutput.length + translucentOutput.length,
+  );
+  vertices.set(opaqueOutput);
+  vertices.set(translucentOutput, opaqueOutput.length);
+
   return {
-    vertices: new Float32Array(output),
-    vertexCount: output.length / FLOATS_PER_VERTEX,
+    vertices,
+    vertexCount: opaqueVertexCount + translucentVertexCount,
     floatsPerVertex: FLOATS_PER_VERTEX,
+    opaqueVertexCount,
+    translucentVertexCount,
     columnCount: visibleColumnCount,
     blockCount,
     waterBlockCount,

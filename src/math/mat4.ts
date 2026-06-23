@@ -84,6 +84,62 @@ export function perspectiveWebGl(
   ]);
 }
 
+export function orthographic(
+  left: number,
+  right: number,
+  bottom: number,
+  top: number,
+  near: number,
+  far: number,
+): Mat4 {
+  return new Float32Array([
+    2 / (right - left),
+    0,
+    0,
+    0,
+    0,
+    2 / (top - bottom),
+    0,
+    0,
+    0,
+    0,
+    1 / (near - far),
+    0,
+    -(right + left) / (right - left),
+    -(top + bottom) / (top - bottom),
+    near / (near - far),
+    1,
+  ]);
+}
+
+export function orthographicWebGl(
+  left: number,
+  right: number,
+  bottom: number,
+  top: number,
+  near: number,
+  far: number,
+): Mat4 {
+  return new Float32Array([
+    2 / (right - left),
+    0,
+    0,
+    0,
+    0,
+    2 / (top - bottom),
+    0,
+    0,
+    0,
+    0,
+    -2 / (far - near),
+    0,
+    -(right + left) / (right - left),
+    -(top + bottom) / (top - bottom),
+    -(far + near) / (far - near),
+    1,
+  ]);
+}
+
 export function rotationY(radians: number): Mat4 {
   const cosine = Math.cos(radians);
   const sine = Math.sin(radians);
