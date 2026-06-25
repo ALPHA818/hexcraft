@@ -29,7 +29,9 @@ const WEATHER_SEQUENCE: readonly WeatherKind[] = [
   "storm",
   "snow",
 ];
-const DAY_DURATION_SECONDS = 300;
+export const DAY_NIGHT_CYCLE_SECONDS = 30 * 60;
+export const DAY_OR_NIGHT_SECONDS = DAY_NIGHT_CYCLE_SECONDS / 2;
+const INITIAL_DAY_PHASE = 0.4;
 
 function mix(a: number, b: number, amount: number): number {
   return a + (b - a) * amount;
@@ -60,7 +62,7 @@ export function calculateAtmosphereState(
   weather: WeatherKind,
   lightning = 0,
 ): AtmosphereState {
-  const dayPhase = timeSeconds / DAY_DURATION_SECONDS;
+  const dayPhase = timeSeconds / DAY_NIGHT_CYCLE_SECONDS;
   const sunAngle = dayPhase * Math.PI * 2 - Math.PI / 2;
   const sunHeight = Math.sin(sunAngle);
   const daylight = smoothStep(
@@ -144,7 +146,7 @@ export class Atmosphere {
   readonly #particles: Particle[] = [];
 
   #weatherIndex = 0;
-  #timeSeconds = 120;
+  #timeSeconds = DAY_NIGHT_CYCLE_SECONDS * INITIAL_DAY_PHASE;
   #paused = false;
   #lightning = 0;
   #lightningTimer = 5;
@@ -176,7 +178,7 @@ export class Atmosphere {
 
     if (Number.isFinite(requestedHour) && requestedHour >= 0) {
       this.#timeSeconds =
-        ((requestedHour % 24) / 24) * DAY_DURATION_SECONDS;
+        ((requestedHour % 24) / 24) * DAY_NIGHT_CYCLE_SECONDS;
     }
     if (requestedWeather && WEATHER_SEQUENCE.includes(requestedWeather)) {
       this.#weatherIndex = WEATHER_SEQUENCE.indexOf(requestedWeather);
@@ -217,7 +219,7 @@ export class Atmosphere {
     const delta = Math.min(deltaSeconds, 0.05);
     if (!this.#paused) {
       this.#timeSeconds =
-        (this.#timeSeconds + delta) % DAY_DURATION_SECONDS;
+        (this.#timeSeconds + delta) % DAY_NIGHT_CYCLE_SECONDS;
     }
     this.#state = this.#calculateState();
 
@@ -241,10 +243,10 @@ export class Atmosphere {
   }
 
   skipHours(hours: number): void {
-    const secondsPerHour = DAY_DURATION_SECONDS / 24;
+    const secondsPerHour = DAY_NIGHT_CYCLE_SECONDS / 24;
     this.#timeSeconds =
       (this.#timeSeconds + hours * secondsPerHour) %
-      DAY_DURATION_SECONDS;
+      DAY_NIGHT_CYCLE_SECONDS;
     this.#state = this.#calculateState();
     this.#applyDom();
   }
@@ -267,7 +269,7 @@ export class Atmosphere {
     const twilightTop: [number, number, number] = [0.19, 0.08, 0.27];
     const twilightHorizon: [number, number, number] = [1, 0.31, 0.12];
     const overcast: [number, number, number] = [0.25, 0.31, 0.35];
-    const sunPhase = this.#timeSeconds / DAY_DURATION_SECONDS;
+    const sunPhase = this.#timeSeconds / DAY_NIGHT_CYCLE_SECONDS;
     const sunAngle = sunPhase * Math.PI * 2 - Math.PI / 2;
     const sunHeight = Math.sin(sunAngle);
     const night = smoothStep(

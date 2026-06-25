@@ -89,6 +89,7 @@ fn fragment_main(input: VertexOutput) -> @location(0) vec4<f32> {
   let ambient = uniforms.environment.x;
   let weather = uniforms.environment.y;
   let time = uniforms.environment.z;
+  let flow_time = time;
   let daylight = uniforms.environment.w;
   var normal = normalize(input.world_normal);
   let tile = floor(input.uv.x * 13.0);
@@ -98,17 +99,43 @@ fn fragment_main(input: VertexOutput) -> @location(0) vec4<f32> {
 
   if (water) {
     let tile_start = 8.0 / 13.0;
-    var local_u = fract(input.uv.x * 13.0);
-    local_u += sin(input.world_position.x * 1.7 + time * 1.9) * 0.022;
-    local_u += cos(input.world_position.z * 1.35 - time * 1.4) * 0.018;
-    sample_uv.x = tile_start + clamp(local_u, 0.025, 0.975) / 13.0;
-    sample_uv.y +=
-      sin((input.world_position.x + input.world_position.z) * 1.2 + time * 2.2) * 0.018;
-    normal = normalize(normal + vec3<f32>(
-      sin(input.world_position.z * 1.8 + time * 2.1) * 0.12,
-      0.0,
-      cos(input.world_position.x * 1.6 - time * 1.7) * 0.12,
-    ));
+    let local_uv = vec2<f32>(
+      fract(input.uv.x * 13.0),
+      fract(input.uv.y),
+    );
+    let water_top = normal.y > 0.7;
+
+    if (water_top) {
+      let flow_direction = normalize(vec2<f32>(0.82, -0.57));
+      var flowing_uv = fract(
+        local_uv * 1.65 +
+        flow_direction * flow_time * 0.34 +
+        vec2<f32>(
+          sin(input.world_position.z * 1.8 + flow_time * 1.7),
+          cos(input.world_position.x * 1.6 - flow_time * 1.4),
+        ) * 0.055
+      );
+      sample_uv = vec2<f32>(
+        tile_start + flowing_uv.x / 13.0,
+        flowing_uv.y,
+      );
+
+      normal = normalize(normal + vec3<f32>(
+        sin(input.world_position.z * 1.8 + flow_time * 2.2) * 0.1,
+        0.0,
+        cos(input.world_position.x * 1.6 - flow_time * 1.9) * 0.1,
+      ));
+    } else {
+      var flowing_uv = fract(vec2<f32>(
+        local_uv.x * 1.35 +
+          sin(input.world_position.y * 2.0 + flow_time) * 0.045,
+        local_uv.y * 1.8 - flow_time * 0.72,
+      ));
+      sample_uv = vec2<f32>(
+        tile_start + flowing_uv.x / 13.0,
+        flowing_uv.y,
+      );
+    }
   }
 
   let direction_to_light = normalize(-uniforms.light_direction.xyz);

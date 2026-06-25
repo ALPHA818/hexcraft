@@ -65,6 +65,7 @@ export type TerrainColumn = Readonly<{
   river?: boolean;
   mountain?: boolean;
   caveAirCount?: number;
+  minimumMeshLevel?: number;
 }>;
 
 export type TerrainChunkMesh = MeshData &
@@ -82,7 +83,9 @@ export type TerrainChunkMesh = MeshData &
 const SQRT_THREE = Math.sqrt(3);
 export const TERRAIN_BLOCK_RADIUS = 1;
 export const TERRAIN_BLOCK_HEIGHT = 0.72;
-export const TERRAIN_BASE_Y = -5.76;
+export const TERRAIN_DEPTH_BLOCKS = 500;
+export const TERRAIN_BASE_Y =
+  -5.76 - TERRAIN_DEPTH_BLOCKS * TERRAIN_BLOCK_HEIGHT;
 const SIDE_DIRECTIONS: ReadonlyArray<readonly [number, number]> = [
   [1, 0],
   [0, 1],
@@ -91,7 +94,9 @@ const SIDE_DIRECTIONS: ReadonlyArray<readonly [number, number]> = [
   [0, -1],
   [1, -1],
 ];
-const SIDE_SHADE = [1, 0.94, 0.88, 0.82, 0.86, 0.93] as const;
+const SIDE_SHADE = [1, 0.97, 0.94, 0.91, 0.93, 0.96] as const;
+const TOP_BEVEL_RADIUS_SCALE = 0.985;
+const TOP_BEVEL_HEIGHT_SCALE = 0.025;
 
 function columnKey(q: number, r: number): string {
   return `${q},${r}`;
@@ -291,9 +296,21 @@ export function buildTerrainChunk(
     const centerX = SQRT_THREE * (column.q + column.r / 2) * blockRadius;
     const centerZ = 1.5 * column.r * blockRadius;
     const heightVariation =
-      0.94 + ((column.q * 17 + column.r * 31) & 3) * 0.025;
+      0.97 + ((column.q * 17 + column.r * 31) & 3) * 0.012;
 
-    for (let level = 0; level < maximumLevel; level += 1) {
+    const minimumLevel = Math.max(
+      0,
+      Math.min(
+        maximumLevel,
+        column.minimumMeshLevel ?? 0,
+      ),
+    );
+
+    for (
+      let level = minimumLevel;
+      level < maximumLevel;
+      level += 1
+    ) {
       const material = materialAt(column, level);
 
       if (material === TerrainMaterial.Air) {
@@ -311,14 +328,50 @@ export function buildTerrainChunk(
         blockCount += 1;
       }
 
+      const above = materialAt(column, level + 1);
+      const topExposed = faceIsExposed(material, above);
+      const below = materialAt(column, level - 1);
+      const renderLegacyBottom = !column.blocks && level === 0;
+      const bottomExposed =
+        material !== TerrainMaterial.Water &&
+        (faceIsExposed(material, below) || renderLegacyBottom) &&
+        (level > 0 || renderLegacyBottom);
+      const sideAdjacent = SIDE_DIRECTIONS.map(
+        ([neighborQ, neighborR]) =>
+          materialAt(
+            columnMap.get(
+              columnKey(column.q + neighborQ, column.r + neighborR),
+            ),
+            level,
+          ),
+      );
+      const hasExposedSide = sideAdjacent.some((adjacent) =>
+        faceIsExposed(material, adjacent),
+      );
+
+      if (!topExposed && !bottomExposed && !hasExposedSide) {
+        continue;
+      }
+
       const lowerY = TERRAIN_BASE_Y + level * blockHeight;
       const upperY =
         lowerY +
         blockHeight *
           (material === TerrainMaterial.Water ? 0.86 : 1);
+      const beveledTop =
+        Boolean(column.blocks) &&
+        topExposed &&
+        material !== TerrainMaterial.Water;
+      const sideUpperY = beveledTop
+        ? upperY - blockHeight * TOP_BEVEL_HEIGHT_SCALE
+        : upperY;
+      const topRadius = beveledTop
+        ? blockRadius * TOP_BEVEL_RADIUS_SCALE
+        : blockRadius;
       const topCenter: Vec3 = [centerX, upperY, centerZ];
       const bottomCenter: Vec3 = [centerX, lowerY, centerZ];
       const topRing: Vec3[] = [];
+      const sideTopRing: Vec3[] = [];
       const bottomRing: Vec3[] = [];
       const color =
         material === TerrainMaterial.Water
@@ -327,14 +380,26 @@ export function buildTerrainChunk(
 
       for (let side = 0; side < 6; side += 1) {
         const angle = -Math.PI / 6 + side * (Math.PI / 3);
-        const x = centerX + Math.cos(angle) * blockRadius;
-        const z = centerZ + Math.sin(angle) * blockRadius;
-        topRing.push([x, upperY, z]);
-        bottomRing.push([x, lowerY, z]);
+        const cosine = Math.cos(angle);
+        const sine = Math.sin(angle);
+        topRing.push([
+          centerX + cosine * topRadius,
+          upperY,
+          centerZ + sine * topRadius,
+        ]);
+        sideTopRing.push([
+          centerX + cosine * blockRadius,
+          sideUpperY,
+          centerZ + sine * blockRadius,
+        ]);
+        bottomRing.push([
+          centerX + cosine * blockRadius,
+          lowerY,
+          centerZ + sine * blockRadius,
+        ]);
       }
 
-      const above = materialAt(column, level + 1);
-      if (faceIsExposed(material, above)) {
+      if (topExposed) {
         const texture = textureFor(material, "top", false);
         for (let side = 0; side < 6; side += 1) {
           const next = (side + 1) % 6;
@@ -357,17 +422,72 @@ export function buildTerrainChunk(
               (topRing[side]![2] - centerZ) / (2 * blockRadius) + 0.5,
             ),
           );
+
+          if (beveledTop) {
+            const angle = side * (Math.PI / 3);
+            const normalScale = 1 / Math.hypot(0.2, 0.98);
+            const bevelNormal: Vec3 = [
+              Math.cos(angle) * 0.2 * normalScale,
+              0.98 * normalScale,
+              Math.sin(angle) * 0.2 * normalScale,
+            ];
+            const topCurrentUv = atlasUv(
+              texture,
+              (topRing[side]![0] - centerX) / (2 * blockRadius) + 0.5,
+              (topRing[side]![2] - centerZ) / (2 * blockRadius) + 0.5,
+            );
+            const topNextUv = atlasUv(
+              texture,
+              (topRing[next]![0] - centerX) / (2 * blockRadius) + 0.5,
+              (topRing[next]![2] - centerZ) / (2 * blockRadius) + 0.5,
+            );
+            const sideCurrentUv = atlasUv(
+              texture,
+              (sideTopRing[side]![0] - centerX) /
+                (2 * blockRadius) +
+                0.5,
+              (sideTopRing[side]![2] - centerZ) /
+                (2 * blockRadius) +
+                0.5,
+            );
+            const sideNextUv = atlasUv(
+              texture,
+              (sideTopRing[next]![0] - centerX) /
+                (2 * blockRadius) +
+                0.5,
+              (sideTopRing[next]![2] - centerZ) /
+                (2 * blockRadius) +
+                0.5,
+            );
+
+            pushTriangle(
+              output,
+              sideTopRing[side]!,
+              topRing[side]!,
+              topRing[next]!,
+              bevelNormal,
+              color,
+              sideCurrentUv,
+              topCurrentUv,
+              topNextUv,
+            );
+            pushTriangle(
+              output,
+              sideTopRing[side]!,
+              topRing[next]!,
+              sideTopRing[next]!,
+              bevelNormal,
+              color,
+              sideCurrentUv,
+              topNextUv,
+              sideNextUv,
+            );
+          }
         }
         exposedFaceCount += 1;
       }
 
-      const below = materialAt(column, level - 1);
-      const renderLegacyBottom = !column.blocks && level === 0;
-      if (
-        material !== TerrainMaterial.Water &&
-        (faceIsExposed(material, below) || renderLegacyBottom) &&
-        (level > 0 || renderLegacyBottom)
-      ) {
+      if (bottomExposed) {
         const caveInterior = level < column.height - 2;
         const texture = textureFor(material, "bottom", caveInterior);
         for (let side = 0; side < 6; side += 1) {
@@ -388,11 +508,7 @@ export function buildTerrainChunk(
       }
 
       for (let side = 0; side < 6; side += 1) {
-        const [neighborQ, neighborR] = SIDE_DIRECTIONS[side]!;
-        const neighbor = columnMap.get(
-          columnKey(column.q + neighborQ, column.r + neighborR),
-        );
-        const adjacent = materialAt(neighbor, level);
+        const adjacent = sideAdjacent[side]!;
 
         if (!faceIsExposed(material, adjacent)) {
           continue;
@@ -409,8 +525,8 @@ export function buildTerrainChunk(
         pushTriangle(
           output,
           bottomRing[side]!,
-          topRing[side]!,
-          topRing[next]!,
+          sideTopRing[side]!,
+          sideTopRing[next]!,
           normal,
           sideColor,
           atlasUv(texture, 0, 1),
@@ -420,7 +536,7 @@ export function buildTerrainChunk(
         pushTriangle(
           output,
           bottomRing[side]!,
-          topRing[next]!,
+          sideTopRing[next]!,
           bottomRing[next]!,
           normal,
           sideColor,

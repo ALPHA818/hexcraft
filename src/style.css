@@ -22,10 +22,13 @@ body {
 }
 
 body {
+  position: relative;
+  isolation: isolate;
   overflow: hidden;
   overscroll-behavior: none;
   user-select: none;
   -webkit-user-select: none;
+  background: #07101d;
 }
 
 #sky,
@@ -40,8 +43,12 @@ body {
   height: 100%;
 }
 
+#sky,
 #stars {
   z-index: 0;
+}
+
+#stars {
   background:
     radial-gradient(circle at 12% 18%, #fff 0 1px, transparent 1.5px),
     radial-gradient(circle at 37% 43%, #dce8ff 0 1px, transparent 1.6px),
@@ -152,6 +159,7 @@ body {
 #game {
   display: block;
   z-index: 1;
+  isolation: isolate;
   background: transparent;
   cursor: crosshair;
   touch-action: none;

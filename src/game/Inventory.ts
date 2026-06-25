@@ -41,11 +41,15 @@ export class Inventory {
   readonly #inventoryCounts: HTMLElement;
   readonly #craftButton: HTMLButtonElement;
   readonly #isCreative: boolean;
+  readonly #onOpenChange: (isOpen: boolean) => void;
 
   #selectedIndex = 0;
   #isOpen = false;
 
-  constructor(mode: GameMode = "survival") {
+  constructor(
+    mode: GameMode = "survival",
+    onOpenChange: (isOpen: boolean) => void = () => {},
+  ) {
     const hotbar = document.querySelector<HTMLElement>("#hotbar");
     const panel = document.querySelector<HTMLElement>("#inventory-panel");
     const inventoryCounts =
@@ -62,6 +66,7 @@ export class Inventory {
     this.#inventoryCounts = inventoryCounts;
     this.#craftButton = craftButton;
     this.#isCreative = mode === "creative";
+    this.#onOpenChange = onOpenChange;
     this.#counts.set(TerrainMaterial.Dirt, 8);
 
     document.addEventListener("keydown", (event) => {
@@ -147,6 +152,7 @@ export class Inventory {
     if (this.#isOpen && document.pointerLockElement) {
       document.exitPointerLock();
     }
+    this.#onOpenChange(this.#isOpen);
   }
 
   render(): void {

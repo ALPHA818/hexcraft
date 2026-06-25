@@ -31,7 +31,7 @@ type HexCell = Readonly<{
   row: number;
   centerY: number;
   value: number;
-  edge: boolean;
+  edge: number;
 }>;
 
 const TEXTURE_HEX_RADIUS = 4;
@@ -45,6 +45,11 @@ function noise(x: number, y: number, seed: number): number {
   value = Math.imul(value, 0x45d9f3b);
   value ^= value >>> 16;
   return (value >>> 0) / 0xffffffff;
+}
+
+function smoothStep(value: number): number {
+  const clamped = Math.max(0, Math.min(1, value));
+  return clamped * clamped * (3 - 2 * clamped);
 }
 
 function sampleHexCell(x: number, y: number, seed: number): HexCell {
@@ -93,7 +98,9 @@ function sampleHexCell(x: number, y: number, seed: number): HexCell {
     row: nearestRow,
     centerY: nearestCenterY,
     value: noise(nearestColumn, nearestRow, seed),
-    edge: secondDistance - nearestDistance < 0.72,
+    edge: smoothStep(
+      (0.9 - (secondDistance - nearestDistance)) / 0.9,
+    ),
   };
 }
 
@@ -124,16 +131,14 @@ export function createBlockTextureAtlas(): TextureAtlasData {
     for (let x = 0; x < BLOCK_TEXTURE_TILE_SIZE; x += 1) {
       const grassCell = sampleHexCell(x, y, 3);
       const grassAccent = noise(grassCell.column, grassCell.row, 41);
-      let grassShade = grassCell.value * 46 - 21;
+      let grassShade = grassCell.value * 34 - 16;
 
       if (grassAccent > 0.88) {
-        grassShade -= 25;
+        grassShade -= 12;
       } else if (grassAccent < 0.1) {
-        grassShade += 21;
+        grassShade += 11;
       }
-      if (grassCell.edge) {
-        grassShade -= 34;
-      }
+      grassShade -= grassCell.edge * 10;
 
       setPixel(
         pixels,
@@ -146,10 +151,8 @@ export function createBlockTextureAtlas(): TextureAtlasData {
       );
 
       const dirtCell = sampleHexCell(x, y, 11);
-      let dirtShade = dirtCell.value * 42 - 20;
-      if (dirtCell.edge) {
-        dirtShade -= 28;
-      }
+      const dirtShade =
+        dirtCell.value * 32 - 15 - dirtCell.edge * 8;
       setPixel(
         pixels,
         BlockTexture.Dirt,
@@ -164,10 +167,8 @@ export function createBlockTextureAtlas(): TextureAtlasData {
       const grassEdge =
         12 + noise(sideCell.column, sideCell.row, 29) * 7;
       if (sideCell.centerY < grassEdge) {
-        let edgeShade = sideCell.value * 42 - 20;
-        if (sideCell.edge) {
-          edgeShade -= 32;
-        }
+        const edgeShade =
+          sideCell.value * 32 - 15 - sideCell.edge * 10;
         setPixel(
           pixels,
           BlockTexture.GrassSide,
@@ -178,11 +179,10 @@ export function createBlockTextureAtlas(): TextureAtlasData {
           38 + edgeShade * 0.3,
         );
       } else {
-        let sideDirtShade =
-          noise(sideCell.column, sideCell.row, 11) * 42 - 20;
-        if (sideCell.edge) {
-          sideDirtShade -= 28;
-        }
+        const sideDirtShade =
+          noise(sideCell.column, sideCell.row, 11) * 32 -
+          15 -
+          sideCell.edge * 8;
         setPixel(
           pixels,
           BlockTexture.GrassSide,
@@ -196,16 +196,14 @@ export function createBlockTextureAtlas(): TextureAtlasData {
 
       const stoneCell = sampleHexCell(x, y, 19);
       const stoneDetail = noise(stoneCell.column, stoneCell.row, 83);
-      let stoneShade = stoneCell.value * 48 - 23;
+      let stoneShade = stoneCell.value * 36 - 18;
 
       if (stoneDetail > 0.86) {
-        stoneShade -= 29;
+        stoneShade -= 14;
       } else if (stoneDetail < 0.12) {
-        stoneShade += 24;
+        stoneShade += 12;
       }
-      if (stoneCell.edge) {
-        stoneShade -= 31;
-      }
+      stoneShade -= stoneCell.edge * 9;
 
       setPixel(
         pixels,
@@ -218,10 +216,8 @@ export function createBlockTextureAtlas(): TextureAtlasData {
       );
 
       const sandCell = sampleHexCell(x, y, 103);
-      let sandShade = sandCell.value * 34 - 15;
-      if (sandCell.edge) {
-        sandShade -= 20;
-      }
+      const sandShade =
+        sandCell.value * 26 - 12 - sandCell.edge * 6;
       setPixel(
         pixels,
         BlockTexture.Sand,
@@ -233,10 +229,8 @@ export function createBlockTextureAtlas(): TextureAtlasData {
       );
 
       const snowCell = sampleHexCell(x, y, 127);
-      let snowShade = snowCell.value * 22 - 9;
-      if (snowCell.edge) {
-        snowShade -= 18;
-      }
+      const snowShade =
+        snowCell.value * 18 - 8 - snowCell.edge * 5;
       setPixel(
         pixels,
         BlockTexture.Snow,
@@ -248,10 +242,8 @@ export function createBlockTextureAtlas(): TextureAtlasData {
       );
 
       const alpineCell = sampleHexCell(x, y, 149);
-      let alpineShade = alpineCell.value * 48 - 24;
-      if (alpineCell.edge) {
-        alpineShade -= 28;
-      }
+      const alpineShade =
+        alpineCell.value * 36 - 18 - alpineCell.edge * 8;
       setPixel(
         pixels,
         BlockTexture.AlpineRock,
@@ -263,10 +255,8 @@ export function createBlockTextureAtlas(): TextureAtlasData {
       );
 
       const dryCell = sampleHexCell(x, y, 173);
-      let dryShade = dryCell.value * 40 - 18;
-      if (dryCell.edge) {
-        dryShade -= 26;
-      }
+      const dryShade =
+        dryCell.value * 30 - 14 - dryCell.edge * 7;
       setPixel(
         pixels,
         BlockTexture.DryGrass,
@@ -278,10 +268,8 @@ export function createBlockTextureAtlas(): TextureAtlasData {
       );
 
       const waterCell = sampleHexCell(x, y, 197);
-      let waterShade = waterCell.value * 36 - 16;
-      if (waterCell.edge) {
-        waterShade -= 20;
-      }
+      const waterShade =
+        waterCell.value * 24 - 11 - waterCell.edge * 4;
       setPixel(
         pixels,
         BlockTexture.Water,
@@ -294,10 +282,8 @@ export function createBlockTextureAtlas(): TextureAtlasData {
       );
 
       const caveCell = sampleHexCell(x, y, 229);
-      let caveShade = caveCell.value * 35 - 17;
-      if (caveCell.edge) {
-        caveShade -= 25;
-      }
+      const caveShade =
+        caveCell.value * 28 - 13 - caveCell.edge * 7;
       setPixel(
         pixels,
         BlockTexture.CaveStone,
@@ -313,10 +299,11 @@ export function createBlockTextureAtlas(): TextureAtlasData {
         Math.hypot(x - 32, y - 32) * 0.65 +
           woodCell.value * 2,
       );
-      let woodShade = woodCell.value * 30 - 13 + woodRing * 13;
-      if (woodCell.edge) {
-        woodShade -= 18;
-      }
+      const woodShade =
+        woodCell.value * 24 -
+        11 +
+        woodRing * 8 -
+        woodCell.edge * 5;
       setPixel(
         pixels,
         BlockTexture.Wood,
@@ -328,17 +315,16 @@ export function createBlockTextureAtlas(): TextureAtlasData {
       );
 
       const leafCell = sampleHexCell(x, y, 281);
-      let leafShade = leafCell.value * 48 - 22;
-      if (leafCell.edge) {
-        leafShade -= 34;
-      }
+      const leafShade =
+        leafCell.value * 36 - 17 - leafCell.edge * 10;
       const leafSpeckle = noise(x, y, 331);
       const leafVein =
         Math.abs(((x + y * 2) % 17) - 8) < 1 ||
         Math.abs(((x * 2 - y) % 19) - 9) < 1;
       const leafHole =
         !leafVein &&
-        (leafSpeckle > 0.78 || (leafCell.edge && leafCell.value < 0.48));
+        (leafSpeckle > 0.9 ||
+          (leafCell.edge > 0.82 && leafCell.value < 0.34));
       setPixel(
         pixels,
         BlockTexture.Leaves,
@@ -351,9 +337,9 @@ export function createBlockTextureAtlas(): TextureAtlasData {
       );
 
       const plankRow = Math.floor(y / 12);
-      const plankLine = y % 12 < 2;
-      const plankNoise = noise(x, plankRow, 307) * 26 - 12;
-      const plankShade = plankLine ? plankNoise - 35 : plankNoise;
+      const plankLine = y % 12 === 0;
+      const plankNoise = noise(x, plankRow, 307) * 18 - 8;
+      const plankShade = plankLine ? plankNoise - 16 : plankNoise;
       setPixel(
         pixels,
         BlockTexture.Planks,

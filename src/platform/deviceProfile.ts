@@ -61,7 +61,7 @@ export function detectDeviceProfile(): DeviceProfile {
     : {
         isMobile: false,
         maxPixelRatio: 2,
-        chunkSize: 10,
+        chunkSize: 8,
         renderDistance: 2,
         shadowMapSize: 1024,
         weatherParticles: 360,

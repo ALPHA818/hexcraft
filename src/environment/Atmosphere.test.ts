@@ -2,6 +2,8 @@ import { describe, expect, it } from "vitest";
 
 import {
   calculateAtmosphereState,
+  DAY_NIGHT_CYCLE_SECONDS,
+  DAY_OR_NIGHT_SECONDS,
   type AtmosphereState,
 } from "./Atmosphere.ts";
 
@@ -25,7 +27,10 @@ describe("atmosphere state contract", () => {
   });
 
   it("makes daylight brighter than midnight", () => {
-    const noon = calculateAtmosphereState(150, "clear");
+    const noon = calculateAtmosphereState(
+      DAY_NIGHT_CYCLE_SECONDS / 2,
+      "clear",
+    );
     const midnight = calculateAtmosphereState(0, "clear");
 
     expect(noon.daylight).toBeGreaterThan(midnight.daylight);
@@ -33,8 +38,14 @@ describe("atmosphere state contract", () => {
   });
 
   it("increases fog and cloud cover during storms", () => {
-    const clear = calculateAtmosphereState(120, "clear");
-    const storm = calculateAtmosphereState(120, "storm");
+    const clear = calculateAtmosphereState(
+      DAY_NIGHT_CYCLE_SECONDS * 0.4,
+      "clear",
+    );
+    const storm = calculateAtmosphereState(
+      DAY_NIGHT_CYCLE_SECONDS * 0.4,
+      "storm",
+    );
 
     expect(storm.weatherIntensity).toBe(1);
     expect(storm.cloudCover).toBeGreaterThan(clear.cloudCover);
@@ -42,12 +53,26 @@ describe("atmosphere state contract", () => {
 
   it("transitions through sunrise, noon, sunset, and night", () => {
     const midnight = calculateAtmosphereState(0, "clear");
-    const sunrise = calculateAtmosphereState(75, "clear");
-    const noon = calculateAtmosphereState(150, "clear");
-    const sunset = calculateAtmosphereState(225, "clear");
+    const sunrise = calculateAtmosphereState(
+      DAY_NIGHT_CYCLE_SECONDS / 4,
+      "clear",
+    );
+    const noon = calculateAtmosphereState(
+      DAY_NIGHT_CYCLE_SECONDS / 2,
+      "clear",
+    );
+    const sunset = calculateAtmosphereState(
+      DAY_NIGHT_CYCLE_SECONDS * 0.75,
+      "clear",
+    );
 
     expect(noon.daylight).toBeGreaterThan(sunrise.daylight);
     expect(noon.daylight).toBeGreaterThan(sunset.daylight);
     expect(midnight.daylight).toBeLessThan(sunrise.daylight);
+  });
+
+  it("runs fifteen minutes of day and fifteen minutes of night", () => {
+    expect(DAY_OR_NIGHT_SECONDS).toBe(15 * 60);
+    expect(DAY_NIGHT_CYCLE_SECONDS).toBe(30 * 60);
   });
 });

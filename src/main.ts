@@ -80,7 +80,11 @@ async function start(): Promise<void> {
     );
     camera.spawnAt(0, 18);
     camera.start();
-    const inventory = new Inventory(ACTIVE_GAME_MODE);
+    const inventory = new Inventory(ACTIVE_GAME_MODE, (isOpen) => {
+      if (!isOpen) {
+        camera.resumeInput();
+      }
+    });
     const atmosphere = new Atmosphere();
     const showWorldStatus = (update: TerrainStreamUpdate): void => {
       statusMessage.textContent =
@@ -116,7 +120,7 @@ async function start(): Promise<void> {
     renderer.start(
       camera,
       atmosphere,
-      () => {
+      (deltaSeconds) => {
         const [x, , z] = camera.position();
         const update = world.requestUpdate({ x, z });
 
@@ -140,6 +144,19 @@ async function start(): Promise<void> {
               if (requestId === streamRequestId) {
                 delete statusMessage.dataset.streaming;
               }
+            });
+        }
+
+        const waterUpdate = world.advanceWaterFlow(deltaSeconds);
+        if (waterUpdate) {
+          void waterUpdate
+            .then((worldUpdate) => {
+              if (worldUpdate) {
+                applyWorldUpdate(worldUpdate);
+              }
+            })
+            .catch((error) => {
+              console.error("Water flow remesh failed.", error);
             });
         }
         survival.update();

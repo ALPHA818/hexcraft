@@ -1,9 +1,13 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
   cameraForward,
   FirstPersonCamera,
 } from "./FirstPersonCamera.ts";
+
+afterEach(() => {
+  vi.unstubAllGlobals();
+});
 
 describe("first-person camera direction", () => {
   it("faces down negative Z at zero rotation", () => {
@@ -61,5 +65,25 @@ describe("first-person camera direction", () => {
     camera.update(1 / 30);
 
     expect(camera.position()[1]).toBeGreaterThan(before);
+  });
+
+  it("reacquires desktop pointer lock after an interface closes", () => {
+    const requestPointerLock = vi.fn(() => Promise.resolve());
+    const canvas = {
+      requestPointerLock,
+    } as unknown as HTMLCanvasElement;
+    vi.stubGlobal("document", { pointerLockElement: null });
+    const camera = new FirstPersonCamera(
+      canvas,
+      {
+        groundYAt: () => 0,
+        isSolidAtWorld: () => false,
+      },
+      false,
+    );
+
+    camera.resumeInput();
+
+    expect(requestPointerLock).toHaveBeenCalledOnce();
   });
 });

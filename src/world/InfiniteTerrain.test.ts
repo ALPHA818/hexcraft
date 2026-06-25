@@ -16,8 +16,12 @@ import {
 import {
   TERRAIN_BASE_Y,
   TERRAIN_BLOCK_HEIGHT,
+  TERRAIN_DEPTH_BLOCKS,
   TerrainMaterial,
 } from "../geometry/terrainChunk.ts";
+
+const TEST_LEVEL = TERRAIN_DEPTH_BLOCKS + 30;
+const WATER_TEST_STEP_SECONDS = 0.1;
 
 describe("infinite terrain", () => {
   it("round-trips positive and negative axial coordinates", () => {
@@ -52,6 +56,19 @@ describe("infinite terrain", () => {
 
     expect(repeated).toEqual(first);
     expect(differentSeed).not.toEqual(first);
+  });
+
+  it("provides five hundred mineable blocks below the original world base", () => {
+    const column = generateTerrainColumn(0, 0, 42);
+
+    expect(column.height).toBeGreaterThan(TERRAIN_DEPTH_BLOCKS);
+    expect(column.blocks?.[0]).toBe(TerrainMaterial.Stone);
+    expect(column.blocks?.[TERRAIN_DEPTH_BLOCKS - 1]).toBe(
+      TerrainMaterial.Stone,
+    );
+    expect(
+      TERRAIN_BASE_Y + TERRAIN_DEPTH_BLOCKS * TERRAIN_BLOCK_HEIGHT,
+    ).toBeCloseTo(-5.76);
   });
 
   it("selects biomes and carves deterministic cave cells", () => {
@@ -132,12 +149,17 @@ describe("infinite terrain", () => {
   it("keeps mined and placed blocks after streaming away and back", () => {
     const terrain = new InfiniteTerrain(42, 4, 1);
     terrain.update({ x: 0, z: 0 });
-    terrain.setBlock({ q: 0, r: 0, level: 30 }, TerrainMaterial.Planks);
+    terrain.setBlock(
+      { q: 0, r: 0, level: TEST_LEVEL },
+      TerrainMaterial.Planks,
+    );
 
     terrain.update(axialToWorld(40, 0));
     terrain.update({ x: 0, z: 0 });
 
-    expect(terrain.materialAt(0, 0, 30)).toBe(TerrainMaterial.Planks);
+    expect(terrain.materialAt(0, 0, TEST_LEVEL)).toBe(
+      TerrainMaterial.Planks,
+    );
   });
 
   it("raycasts a terrain block and returns the adjacent placement cell", () => {
@@ -161,27 +183,189 @@ describe("infinite terrain", () => {
     const terrain = new InfiniteTerrain(42, 2, 0);
     terrain.update({ x: 0, z: 0 });
 
-    terrain.setBlock({ q: 0, r: 0, level: 30 }, TerrainMaterial.Wood);
-    terrain.setBlock({ q: 1, r: 0, level: 30 }, TerrainMaterial.Leaves);
+    terrain.setBlock(
+      { q: 0, r: 0, level: TEST_LEVEL },
+      TerrainMaterial.Wood,
+    );
+    terrain.setBlock(
+      { q: 1, r: 0, level: TEST_LEVEL },
+      TerrainMaterial.Leaves,
+    );
 
-    expect(terrain.isSolidAt(1, 0, 30)).toBe(true);
+    expect(terrain.isSolidAt(1, 0, TEST_LEVEL)).toBe(true);
 
-    terrain.setBlock({ q: 0, r: 0, level: 30 }, TerrainMaterial.Air);
+    terrain.setBlock(
+      { q: 0, r: 0, level: TEST_LEVEL },
+      TerrainMaterial.Air,
+    );
 
-    expect(terrain.materialAt(1, 0, 30)).toBe(TerrainMaterial.Air);
+    expect(terrain.materialAt(1, 0, TEST_LEVEL)).toBe(
+      TerrainMaterial.Air,
+    );
   });
 
-  it("lets local water flow into nearby mined air", () => {
+  it("animates local water flow into nearby mined air", async () => {
     const terrain = new InfiniteTerrain(42, 2, 0);
     terrain.update({ x: 0, z: 0 });
 
-    terrain.setBlock({ q: 0, r: 0, level: 29 }, TerrainMaterial.Stone);
-    terrain.setBlock({ q: 1, r: 0, level: 29 }, TerrainMaterial.Stone);
-    terrain.setBlock({ q: 0, r: 0, level: 30 }, TerrainMaterial.Water);
-    terrain.setBlock({ q: 1, r: 0, level: 30 }, TerrainMaterial.Air);
+    terrain.setBlock(
+      { q: 0, r: 0, level: TEST_LEVEL - 1 },
+      TerrainMaterial.Stone,
+    );
+    terrain.setBlock(
+      { q: 1, r: 0, level: TEST_LEVEL - 1 },
+      TerrainMaterial.Stone,
+    );
+    terrain.setBlock(
+      { q: 0, r: 0, level: TEST_LEVEL },
+      TerrainMaterial.Water,
+    );
+    terrain.setBlock(
+      { q: 1, r: 0, level: TEST_LEVEL },
+      TerrainMaterial.Air,
+    );
 
-    expect(terrain.isSolidAt(1, 0, 30)).toBe(false);
-    expect(terrain.isFluidAt(1, 0, 30)).toBe(true);
+    expect(terrain.materialAt(1, 0, TEST_LEVEL)).toBe(
+      TerrainMaterial.Air,
+    );
+    await terrain.advanceWaterFlow(WATER_TEST_STEP_SECONDS);
+
+    expect(terrain.isSolidAt(1, 0, TEST_LEVEL)).toBe(false);
+    expect(terrain.isFluidAt(1, 0, TEST_LEVEL)).toBe(true);
+  });
+
+  it("advances horizontal water one visible wave at a time", async () => {
+    const terrain = new InfiniteTerrain(42, 2, 0);
+    terrain.update({ x: 0, z: 0 });
+
+    terrain.setBlock(
+      { q: 0, r: 0, level: TEST_LEVEL - 1 },
+      TerrainMaterial.Stone,
+    );
+    terrain.setBlock(
+      { q: 1, r: 0, level: TEST_LEVEL - 1 },
+      TerrainMaterial.Stone,
+    );
+    terrain.setBlock(
+      { q: 2, r: 0, level: TEST_LEVEL - 1 },
+      TerrainMaterial.Stone,
+    );
+    terrain.setBlock(
+      { q: 0, r: 0, level: TEST_LEVEL },
+      TerrainMaterial.Water,
+    );
+    terrain.setBlock(
+      { q: 1, r: 0, level: TEST_LEVEL },
+      TerrainMaterial.Air,
+    );
+    await terrain.advanceWaterFlow(WATER_TEST_STEP_SECONDS);
+
+    expect(terrain.materialAt(1, 0, TEST_LEVEL)).toBe(
+      TerrainMaterial.Water,
+    );
+    expect(terrain.materialAt(2, 0, TEST_LEVEL)).toBe(
+      TerrainMaterial.Air,
+    );
+  });
+
+  it("limits horizontal water flow to three hexes from its source", async () => {
+    const terrain = new InfiniteTerrain(42, 2, 0);
+    terrain.update({ x: 0, z: 0 });
+
+    for (let q = 0; q <= 5; q += 1) {
+      terrain.setBlock(
+        { q, r: 0, level: TEST_LEVEL - 1 },
+        TerrainMaterial.Stone,
+      );
+    }
+    for (let q = 1; q <= 5; q += 1) {
+      terrain.setBlock(
+        { q, r: 0, level: TEST_LEVEL },
+        TerrainMaterial.Air,
+      );
+    }
+    terrain.setBlock(
+      { q: 0, r: 0, level: TEST_LEVEL },
+      TerrainMaterial.Water,
+    );
+    terrain.setBlock(
+      { q: 1, r: 0, level: TEST_LEVEL },
+      TerrainMaterial.Air,
+    );
+
+    for (let step = 0; step < 40; step += 1) {
+      await terrain.advanceWaterFlow(1);
+    }
+
+    expect(terrain.materialAt(1, 0, TEST_LEVEL)).toBe(
+      TerrainMaterial.Water,
+    );
+    expect(terrain.materialAt(2, 0, TEST_LEVEL)).toBe(
+      TerrainMaterial.Water,
+    );
+    expect(terrain.materialAt(3, 0, TEST_LEVEL)).toBe(
+      TerrainMaterial.Water,
+    );
+    expect(terrain.materialAt(4, 0, TEST_LEVEL)).toBe(
+      TerrainMaterial.Air,
+    );
+    expect(terrain.materialAt(5, 0, TEST_LEVEL)).toBe(
+      TerrainMaterial.Air,
+    );
+  });
+
+  it("animates water down a mined shaft without spreading sideways", async () => {
+    const terrain = new InfiniteTerrain(42, 2, 0);
+    terrain.update({ x: 0, z: 0 });
+
+    terrain.setBlock(
+      { q: 0, r: 0, level: TEST_LEVEL - 3 },
+      TerrainMaterial.Stone,
+    );
+    terrain.setBlock(
+      { q: 0, r: 0, level: TEST_LEVEL - 2 },
+      TerrainMaterial.Air,
+    );
+    terrain.setBlock(
+      { q: 0, r: 0, level: TEST_LEVEL - 1 },
+      TerrainMaterial.Air,
+    );
+    terrain.setBlock(
+      { q: 0, r: 0, level: TEST_LEVEL + 1 },
+      TerrainMaterial.Water,
+    );
+    terrain.setBlock(
+      { q: 0, r: 0, level: TEST_LEVEL },
+      TerrainMaterial.Air,
+    );
+
+    expect(terrain.materialAt(0, 0, TEST_LEVEL)).toBe(
+      TerrainMaterial.Air,
+    );
+    await terrain.advanceWaterFlow(WATER_TEST_STEP_SECONDS);
+    expect(terrain.materialAt(0, 0, TEST_LEVEL)).toBe(
+      TerrainMaterial.Water,
+    );
+    expect(terrain.materialAt(0, 0, TEST_LEVEL - 1)).toBe(
+      TerrainMaterial.Air,
+    );
+    await terrain.advanceWaterFlow(WATER_TEST_STEP_SECONDS);
+    expect(terrain.materialAt(0, 0, TEST_LEVEL - 1)).toBe(
+      TerrainMaterial.Water,
+    );
+    expect(terrain.materialAt(0, 0, TEST_LEVEL - 2)).toBe(
+      TerrainMaterial.Air,
+    );
+    await terrain.advanceWaterFlow(WATER_TEST_STEP_SECONDS);
+    expect(terrain.materialAt(0, 0, TEST_LEVEL - 2)).toBe(
+      TerrainMaterial.Water,
+    );
+    expect(terrain.materialAt(0, 0, TEST_LEVEL - 3)).toBe(
+      TerrainMaterial.Stone,
+    );
+    expect(terrain.materialAt(1, 0, TEST_LEVEL - 1)).not.toBe(
+      TerrainMaterial.Water,
+    );
   });
 
   it("adds an invisible neighbor ring around the streamed window", () => {

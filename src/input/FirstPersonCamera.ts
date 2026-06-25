@@ -287,6 +287,17 @@ export class FirstPersonCamera {
     return this.#isPointerLocked;
   }
 
+  resumeInput(): void {
+    if (
+      this.#isMobile ||
+      document.pointerLockElement === this.#canvas
+    ) {
+      return;
+    }
+
+    void this.#canvas.requestPointerLock();
+  }
+
   isInputActive(): boolean {
     return this.#isMobile || this.#isPointerLocked;
   }

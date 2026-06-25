@@ -47,6 +47,7 @@ export class WebGpuRenderer {
   #depthHeight = 0;
   #animationFrame = 0;
   #lastFrameTime = 0;
+  #animationSeconds = 0;
   #vertexBuffer: GPUBuffer;
   #vertexBufferCapacity: number;
   #opaqueVertexCount: number;
@@ -97,7 +98,7 @@ export class WebGpuRenderer {
       [atlas.width, atlas.height],
     );
     const blockSampler = device.createSampler({
-      label: "Block texture nearest-neighbor sampler",
+      label: "Soft block texture sampler",
       addressModeU: "clamp-to-edge",
       addressModeV: "clamp-to-edge",
       magFilter: "linear",
@@ -379,7 +380,7 @@ export class WebGpuRenderer {
   start(
     camera: FirstPersonCamera,
     atmosphere: Atmosphere,
-    onFrame: () => void,
+    onFrame: (deltaSeconds: number) => void,
     onDeviceLost: (reason: string) => void,
   ): void {
     void this.#device.lost.then((information) => {
@@ -391,9 +392,10 @@ export class WebGpuRenderer {
       const deltaSeconds =
         this.#lastFrameTime === 0 ? 0 : (time - this.#lastFrameTime) / 1000;
       this.#lastFrameTime = time;
+      this.#animationSeconds += Math.min(deltaSeconds, 0.1);
       camera.update(deltaSeconds);
       atmosphere.update(deltaSeconds);
-      onFrame();
+      onFrame(deltaSeconds);
       this.#render(camera, atmosphere);
       this.#animationFrame = requestAnimationFrame(renderFrame);
     };
@@ -488,7 +490,7 @@ export class WebGpuRenderer {
       [
         environment.ambient,
         environment.weatherIntensity,
-        environment.timeSeconds,
+        this.#animationSeconds,
         environment.daylight,
       ],
       64,

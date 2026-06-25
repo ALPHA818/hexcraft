@@ -6,6 +6,7 @@ import {
   TERRAIN_BASE_Y,
   TERRAIN_BLOCK_HEIGHT,
   TERRAIN_BLOCK_RADIUS,
+  TERRAIN_DEPTH_BLOCKS,
   TerrainMaterial,
   type TerrainChunkMesh,
   type TerrainBiome,
@@ -53,6 +54,12 @@ export type TerrainBuildResult = Readonly<{
   columns: readonly TerrainColumn[];
 }>;
 
+type WaterFlowNode = Readonly<{
+  position: VoxelPosition;
+  horizontalDistance: number;
+  remainingFallDistance: number;
+}>;
+
 export const DEFAULT_WORLD_SEED = 0x484558;
 export const DEFAULT_CHUNK_SIZE = 8;
 export const DEFAULT_RENDER_DISTANCE = 4;
@@ -67,10 +74,11 @@ const HEX_DIRECTIONS: ReadonlyArray<readonly [number, number]> = [
 ];
 const HORIZONTAL_DIRECTIONS: ReadonlyArray<readonly [number, number]> =
   HEX_DIRECTIONS.slice(1);
-const WATER_SPREAD_DISTANCE = 5;
-const WATER_FLOW_SCAN_RADIUS = 2;
-const WATER_FLOW_LEVEL_RADIUS = 3;
-const MAX_WATER_FLOW_EDITS = 96;
+const MAX_WATER_HORIZONTAL_DISTANCE = 3;
+const MAX_WATER_FALL_DISTANCE = 12;
+const MAX_WATER_CHANGES_PER_STEP = 12;
+const MAX_WATER_STEPS_PER_UPDATE = 4;
+const WATER_FLOW_STEP_SECONDS = 0.08;
 const LEAF_SUPPORT_DISTANCE = 5;
 const LEAF_DECAY_SCAN_RADIUS = 3;
 const LEAF_DECAY_LEVEL_RADIUS = 8;
@@ -298,7 +306,7 @@ export function terrainHeightAt(
   r: number,
   seed = DEFAULT_WORLD_SEED,
 ): number {
-  return terrainProfileAt(q, r, seed).height;
+  return TERRAIN_DEPTH_BLOCKS + terrainProfileAt(q, r, seed).height;
 }
 
 export function biomeAt(
@@ -316,21 +324,29 @@ export function caveAt(
   surfaceHeight: number,
   seed = DEFAULT_WORLD_SEED,
 ): boolean {
-  if (level < 2 || level >= surfaceHeight) {
+  const localLevel = level - TERRAIN_DEPTH_BLOCKS;
+  const localSurfaceHeight = surfaceHeight - TERRAIN_DEPTH_BLOCKS;
+
+  if (localLevel < 2 || localLevel >= localSurfaceHeight) {
     return false;
   }
 
   const tunnel = Math.abs(
-    valueNoise3d(q * 0.105, level * 0.14, r * 0.105, seed + 601) - 0.5,
+    valueNoise3d(
+      q * 0.105,
+      localLevel * 0.14,
+      r * 0.105,
+      seed + 601,
+    ) - 0.5,
   );
   const chamber = valueNoise3d(
     q * 0.062,
-    level * 0.09,
+    localLevel * 0.09,
     r * 0.062,
     seed + 647,
   );
   const cave =
-    level < surfaceHeight - 1 &&
+    localLevel < localSurfaceHeight - 1 &&
     tunnel < 0.075 &&
     chamber > 0.34;
   const entranceField = valueNoise(
@@ -340,7 +356,7 @@ export function caveAt(
   );
   const entrance =
     entranceField > 0.81 &&
-    level >= surfaceHeight - 6 &&
+    localLevel >= localSurfaceHeight - 6 &&
     tunnel < 0.15;
 
   return cave || entrance;
@@ -400,7 +416,12 @@ export function generateTerrainColumn(
   visible = true,
 ): TerrainColumn {
   const profile = terrainProfileAt(q, r, seed);
-  const maximumLevel = Math.max(profile.height, profile.waterLevel) + 8;
+  const surfaceHeight = TERRAIN_DEPTH_BLOCKS + profile.height;
+  const waterLevel =
+    profile.waterLevel > 0
+      ? TERRAIN_DEPTH_BLOCKS + profile.waterLevel
+      : 0;
+  const maximumLevel = Math.max(surfaceHeight, waterLevel) + 8;
   const blocks = new Uint8Array(maximumLevel);
   const moistureVariant = valueNoise(
     q * 0.037,
@@ -410,8 +431,18 @@ export function generateTerrainColumn(
   const topMaterial = surfaceMaterial(profile.biome, moistureVariant);
   let caveAirCount = 0;
 
-  for (let level = 0; level < profile.height; level += 1) {
-    const depth = profile.height - level;
+  blocks.fill(
+    TerrainMaterial.Stone,
+    0,
+    Math.min(TERRAIN_DEPTH_BLOCKS, surfaceHeight),
+  );
+
+  for (
+    let level = TERRAIN_DEPTH_BLOCKS;
+    level < surfaceHeight;
+    level += 1
+  ) {
+    const depth = surfaceHeight - level;
     let material: TerrainMaterial;
 
     if (depth === 1) {
@@ -425,12 +456,12 @@ export function generateTerrainColumn(
             : TerrainMaterial.Dirt;
     } else {
       material =
-        profile.mountain && level > profile.height - 8
+        profile.mountain && level > surfaceHeight - 8
           ? TerrainMaterial.AlpineRock
           : TerrainMaterial.Stone;
     }
 
-    if (caveAt(q, r, level, profile.height, seed)) {
+    if (caveAt(q, r, level, surfaceHeight, seed)) {
       blocks[level] = TerrainMaterial.Air;
       caveAirCount += 1;
     } else {
@@ -439,8 +470,8 @@ export function generateTerrainColumn(
   }
 
   for (
-    let level = profile.height;
-    level < profile.waterLevel;
+    let level = surfaceHeight;
+    level < waterLevel;
     level += 1
   ) {
     blocks[level] = TerrainMaterial.Water;
@@ -455,7 +486,9 @@ export function generateTerrainColumn(
       continue;
     }
 
-    const treeBase = terrainProfileAt(treeQ, treeR, seed).height;
+    const treeBase =
+      TERRAIN_DEPTH_BLOCKS +
+      terrainProfileAt(treeQ, treeR, seed).height;
     const isTrunkColumn = offsetQ === 0 && offsetR === 0;
 
     if (isTrunkColumn) {
@@ -479,13 +512,14 @@ export function generateTerrainColumn(
   return {
     q,
     r,
-    height: profile.height,
+    height: surfaceHeight,
     visible,
     blocks,
     biome: profile.biome,
     river: profile.river,
     mountain: profile.mountain,
     caveAirCount,
+    minimumMeshLevel: TERRAIN_DEPTH_BLOCKS,
   };
 }
 
@@ -505,6 +539,7 @@ export function generateStreamedColumns(
   chunkSize = DEFAULT_CHUNK_SIZE,
   renderDistance = DEFAULT_RENDER_DISTANCE,
   seed = DEFAULT_WORLD_SEED,
+  columnCache?: Map<string, TerrainColumn>,
 ): TerrainColumn[] {
   const minimumQ = (centerChunk.q - renderDistance) * chunkSize;
   const maximumQ =
@@ -518,12 +553,19 @@ export function generateStreamedColumns(
   // cliff walls from being emitted at boundaries between loaded windows.
   for (let q = minimumQ - 1; q <= maximumQ + 1; q += 1) {
     for (let r = minimumR - 1; r <= maximumR + 1; r += 1) {
+      const cacheKey = `${seed},${q},${r}`;
+      let column = columnCache?.get(cacheKey);
+      if (!column) {
+        column = generateTerrainColumn(q, r, seed, false);
+        columnCache?.set(cacheKey, column);
+      }
       columns.push({
-        ...generateTerrainColumn(q, r, seed, 
+        ...column,
+        visible:
           q >= minimumQ &&
           q <= maximumQ &&
           r >= minimumR &&
-          r <= maximumR),
+          r <= maximumR,
       });
     }
   }
@@ -537,14 +579,17 @@ export function buildTerrainStream(
   renderDistance = DEFAULT_RENDER_DISTANCE,
   seed = DEFAULT_WORLD_SEED,
   edits: readonly TerrainEdit[] = [],
+  columnCache?: Map<string, TerrainColumn>,
 ): TerrainBuildResult {
   const columns = generateStreamedColumns(
     centerChunk,
     chunkSize,
     renderDistance,
     seed,
+    columnCache,
   );
   const editsByColumn = new Map<string, TerrainEdit[]>();
+  const minimumMeshLevelByColumn = new Map<string, number>();
 
   for (const edit of edits) {
     const key = `${edit[0]},${edit[1]}`;
@@ -554,12 +599,38 @@ export function buildTerrainStream(
     } else {
       editsByColumn.set(key, [edit]);
     }
+
+    for (const [offsetQ, offsetR] of HEX_DIRECTIONS) {
+      const affectedKey = `${edit[0] + offsetQ},${edit[1] + offsetR}`;
+      const minimumLevel = Math.max(0, edit[2] - 1);
+      minimumMeshLevelByColumn.set(
+        affectedKey,
+        Math.min(
+          minimumMeshLevelByColumn.get(affectedKey) ??
+            Number.POSITIVE_INFINITY,
+          minimumLevel,
+        ),
+      );
+    }
   }
 
   const editedColumns = columns.map((column) => {
-    const columnEdits = editsByColumn.get(`${column.q},${column.r}`);
+    const key = `${column.q},${column.r}`;
+    const columnEdits = editsByColumn.get(key);
+    const affectedMinimumLevel =
+      minimumMeshLevelByColumn.get(key);
+    const minimumMeshLevel =
+      affectedMinimumLevel === undefined
+        ? column.minimumMeshLevel
+        : Math.min(
+            column.minimumMeshLevel ?? affectedMinimumLevel,
+            affectedMinimumLevel,
+          );
+
     if (!columnEdits || !column.blocks) {
-      return column;
+      return minimumMeshLevel === column.minimumMeshLevel
+        ? column
+        : { ...column, minimumMeshLevel };
     }
 
     const highestLevel = Math.max(...columnEdits.map((edit) => edit[2]));
@@ -570,7 +641,7 @@ export function buildTerrainStream(
     for (const [, , level, material] of columnEdits) {
       blocks[level] = material;
     }
-    return { ...column, blocks };
+    return { ...column, blocks, minimumMeshLevel };
   });
 
   return {
@@ -596,6 +667,12 @@ export class InfiniteTerrain {
   #worker: Worker | null = null;
   #workerRequestId = 0;
   #cancelPendingBuild: (() => void) | null = null;
+  #backgroundBuildId = 0;
+  #backgroundBuildPending = false;
+  #waterFlowQueue: WaterFlowNode[] = [];
+  #queuedWaterFlow = new Map<string, number>();
+  #flowingWater = new Map<string, number>();
+  #waterFlowElapsed = 0;
 
   constructor(
     seed = DEFAULT_WORLD_SEED,
@@ -651,6 +728,49 @@ export class InfiniteTerrain {
     return this.#centerChunk ? this.#buildUpdate(this.#centerChunk) : null;
   }
 
+  advanceWaterFlow(
+    deltaSeconds: number,
+  ): Promise<TerrainStreamUpdate | null> | null {
+    if (
+      !this.#centerChunk ||
+      this.#waterFlowQueue.length === 0
+    ) {
+      return null;
+    }
+
+    this.#waterFlowElapsed += Math.min(Math.max(deltaSeconds, 0), 0.25);
+    if (
+      this.#backgroundBuildPending ||
+      this.#waterFlowElapsed < WATER_FLOW_STEP_SECONDS
+    ) {
+      return null;
+    }
+
+    const availableSteps = Math.min(
+      MAX_WATER_STEPS_PER_UPDATE,
+      Math.floor(this.#waterFlowElapsed / WATER_FLOW_STEP_SECONDS),
+    );
+    let completedSteps = 0;
+    let changed = false;
+
+    while (
+      completedSteps < availableSteps &&
+      this.#waterFlowQueue.length > 0
+    ) {
+      changed = this.#advanceWaterFlowStep() || changed;
+      completedSteps += 1;
+    }
+    this.#waterFlowElapsed -=
+      completedSteps * WATER_FLOW_STEP_SECONDS;
+
+    if (!changed) {
+      this.#waterFlowElapsed = 0;
+      return null;
+    }
+
+    return this.#requestBackgroundBuild(this.#centerChunk);
+  }
+
   materialAt(q: number, r: number, level: number): TerrainMaterial {
     if (level < 0) {
       return TerrainMaterial.Air;
@@ -688,7 +808,7 @@ export class InfiniteTerrain {
   groundYAt(x: number, z: number, maximumY: number): number {
     const { q, r } = worldToAxial(x, z);
     const maximumLevel = Math.min(
-      63,
+      TERRAIN_DEPTH_BLOCKS + 64,
       Math.floor((maximumY - TERRAIN_BASE_Y) / TERRAIN_BLOCK_HEIGHT),
     );
 
@@ -807,6 +927,9 @@ export class InfiniteTerrain {
     material: TerrainMaterial,
   ): void {
     const key = `${position.q},${position.r}`;
+    this.#flowingWater.delete(
+      `${position.q},${position.r},${position.level}`,
+    );
     let columnEdits = this.#edits.get(key);
     if (!columnEdits) {
       columnEdits = new Map();
@@ -816,13 +939,24 @@ export class InfiniteTerrain {
     this.#columnCache.delete(key);
   }
 
+  #setFlowingWaterBlock(
+    position: VoxelPosition,
+    horizontalDistance: number,
+  ): void {
+    this.#setEditedBlock(position, TerrainMaterial.Water);
+    this.#flowingWater.set(
+      `${position.q},${position.r},${position.level}`,
+      horizontalDistance,
+    );
+  }
+
   #applyMaterialConsequences(
     position: VoxelPosition,
     previousMaterial: TerrainMaterial,
     material: TerrainMaterial,
   ): void {
     if (material === TerrainMaterial.Air) {
-      this.#settleWaterAround(position);
+      this.#queueWaterFlowInto(position);
     }
 
     if (
@@ -841,92 +975,168 @@ export class InfiniteTerrain {
     );
   }
 
-  #settleWaterAround(origin: VoxelPosition): void {
-    type WaterNode = VoxelPosition & Readonly<{ distance: number }>;
-    const queue: WaterNode[] = [];
-    const visited = new Set<string>();
-    let waterEditCount = 0;
+  #waterDistanceAt(position: VoxelPosition): number | null {
+    if (
+      this.materialAt(position.q, position.r, position.level) !==
+      TerrainMaterial.Water
+    ) {
+      return null;
+    }
 
-    const enqueue = (node: WaterNode): void => {
-      const key = `${node.q},${node.r},${node.level}`;
-      if (visited.has(key)) {
-        return;
+    return (
+      this.#flowingWater.get(
+        `${position.q},${position.r},${position.level}`,
+      ) ?? 0
+    );
+  }
+
+  #waterInletDistance(origin: VoxelPosition): number | null {
+    const aboveDistance = this.#waterDistanceAt({
+      q: origin.q,
+      r: origin.r,
+      level: origin.level + 1,
+    });
+    if (aboveDistance !== null) {
+      return aboveDistance;
+    }
+
+    let nearestDistance = Number.POSITIVE_INFINITY;
+    for (const [offsetQ, offsetR] of HORIZONTAL_DIRECTIONS) {
+      const neighborDistance = this.#waterDistanceAt({
+        q: origin.q + offsetQ,
+        r: origin.r + offsetR,
+        level: origin.level,
+      });
+      if (
+        neighborDistance !== null &&
+        neighborDistance < MAX_WATER_HORIZONTAL_DISTANCE
+      ) {
+        nearestDistance = Math.min(
+          nearestDistance,
+          neighborDistance + 1,
+        );
       }
-      visited.add(key);
-      queue.push(node);
-    };
+    }
+
+    return Number.isFinite(nearestDistance) ? nearestDistance : null;
+  }
+
+  #queueWaterFlow(
+    position: VoxelPosition,
+    horizontalDistance: number,
+    remainingFallDistance: number,
+    resetTimer = false,
+  ): void {
+    const key = `${position.q},${position.r},${position.level}`;
+    const queuedDistance = this.#queuedWaterFlow.get(key);
+    if (
+      queuedDistance !== undefined &&
+      queuedDistance <= horizontalDistance
+    ) {
+      return;
+    }
+
+    if (resetTimer && this.#waterFlowQueue.length === 0) {
+      this.#waterFlowElapsed = 0;
+    }
+    this.#queuedWaterFlow.set(key, horizontalDistance);
+    this.#waterFlowQueue.push({
+      position,
+      horizontalDistance,
+      remainingFallDistance,
+    });
+  }
+
+  #queueWaterFlowInto(origin: VoxelPosition): void {
+    if (!this.#isWaterFillable(origin)) {
+      return;
+    }
+
+    const horizontalDistance = this.#waterInletDistance(origin);
+    if (horizontalDistance === null) {
+      return;
+    }
+
+    this.#queueWaterFlow(
+      origin,
+      horizontalDistance,
+      MAX_WATER_FALL_DISTANCE,
+      true,
+    );
+  }
+
+  #advanceWaterFlowStep(): boolean {
+    const queuedAtStart = this.#waterFlowQueue.length;
+    let changedBlocks = 0;
 
     for (
-      let q = origin.q - WATER_FLOW_SCAN_RADIUS;
-      q <= origin.q + WATER_FLOW_SCAN_RADIUS;
-      q += 1
+      let processed = 0;
+      processed < queuedAtStart &&
+      changedBlocks < MAX_WATER_CHANGES_PER_STEP;
+      processed += 1
     ) {
-      for (
-        let r = origin.r - WATER_FLOW_SCAN_RADIUS;
-        r <= origin.r + WATER_FLOW_SCAN_RADIUS;
-        r += 1
+      const node = this.#waterFlowQueue.shift()!;
+      const { position } = node;
+      const key = `${position.q},${position.r},${position.level}`;
+      if (
+        this.#queuedWaterFlow.get(key) !== node.horizontalDistance
       ) {
-        if (axialDistance(origin, { q, r }) > WATER_FLOW_SCAN_RADIUS) {
-          continue;
-        }
+        continue;
+      }
+      this.#queuedWaterFlow.delete(key);
 
-        for (
-          let level = Math.max(0, origin.level - WATER_FLOW_LEVEL_RADIUS);
-          level <= origin.level + WATER_FLOW_LEVEL_RADIUS;
-          level += 1
-        ) {
-          if (this.materialAt(q, r, level) === TerrainMaterial.Water) {
-            enqueue({ q, r, level, distance: 0 });
+      const inletDistance = this.#waterInletDistance(position);
+      if (!this.#isWaterFillable(position) || inletDistance === null) {
+        continue;
+      }
+
+      const horizontalDistance = Math.min(
+        node.horizontalDistance,
+        inletDistance,
+      );
+      this.#setFlowingWaterBlock(position, horizontalDistance);
+      changedBlocks += 1;
+
+      let falls = false;
+      if (node.remainingFallDistance > 0 && position.level > 0) {
+        const below = {
+          q: position.q,
+          r: position.r,
+          level: position.level - 1,
+        };
+
+        if (this.#isWaterFillable(below)) {
+          this.#queueWaterFlow(
+            below,
+            horizontalDistance,
+            node.remainingFallDistance - 1,
+          );
+          falls = true;
+        }
+      }
+
+      if (
+        !falls &&
+        horizontalDistance < MAX_WATER_HORIZONTAL_DISTANCE
+      ) {
+        for (const [offsetQ, offsetR] of HORIZONTAL_DIRECTIONS) {
+          const neighbor = {
+            q: position.q + offsetQ,
+            r: position.r + offsetR,
+            level: position.level,
+          };
+          if (this.#isWaterFillable(neighbor)) {
+            this.#queueWaterFlow(
+              neighbor,
+              horizontalDistance + 1,
+              MAX_WATER_FALL_DISTANCE,
+            );
           }
         }
       }
     }
 
-    for (
-      let cursor = 0;
-      cursor < queue.length && waterEditCount < MAX_WATER_FLOW_EDITS;
-      cursor += 1
-    ) {
-      const source = queue[cursor]!;
-
-      if (source.level > 0) {
-        const below = {
-          q: source.q,
-          r: source.r,
-          level: source.level - 1,
-        };
-        if (this.#isWaterFillable(below)) {
-          this.#setEditedBlock(below, TerrainMaterial.Water);
-          waterEditCount += 1;
-          enqueue({ ...below, distance: source.distance });
-          continue;
-        }
-      }
-
-      if (source.distance >= WATER_SPREAD_DISTANCE) {
-        continue;
-      }
-
-      for (const [offsetQ, offsetR] of HORIZONTAL_DIRECTIONS) {
-        const next = {
-          q: source.q + offsetQ,
-          r: source.r + offsetR,
-          level: source.level,
-        };
-
-        if (!this.#isWaterFillable(next)) {
-          continue;
-        }
-
-        this.#setEditedBlock(next, TerrainMaterial.Water);
-        waterEditCount += 1;
-        enqueue({ ...next, distance: source.distance + 1 });
-
-        if (waterEditCount >= MAX_WATER_FLOW_EDITS) {
-          break;
-        }
-      }
-    }
+    return changedBlocks > 0;
   }
 
   #decayUnsupportedLeavesAround(origin: VoxelPosition): void {
@@ -1070,41 +1280,66 @@ export class InfiniteTerrain {
       return Promise.resolve(this.#buildUpdate(centerChunk));
     }
 
-    this.#cancelPendingBuild?.();
-    this.#cancelPendingBuild = null;
-    this.#worker?.terminate();
+    if (this.#cancelPendingBuild) {
+      this.#cancelPendingBuild();
+      this.#cancelPendingBuild = null;
+      this.#worker?.terminate();
+      this.#worker = null;
+    }
     const requestId = ++this.#workerRequestId;
-    const worker = new Worker(
-      new URL("./terrainWorker.ts", import.meta.url),
-      { type: "module" },
-    );
+    const backgroundBuildId = ++this.#backgroundBuildId;
+    this.#backgroundBuildPending = true;
+    const worker =
+      this.#worker ??
+      new Worker(new URL("./terrainWorker.ts", import.meta.url), {
+        type: "module",
+      });
     this.#worker = worker;
 
-    return new Promise((resolve, reject) => {
-      this.#cancelPendingBuild = () => resolve(null);
-      worker.addEventListener("message", (event: MessageEvent<TerrainStreamUpdate>) => {
-        worker.terminate();
-        if (this.#worker === worker) {
-          this.#worker = null;
-          this.#cancelPendingBuild = null;
+    return new Promise<TerrainStreamUpdate | null>((resolve, reject) => {
+      type WorkerResponse = Readonly<{
+        requestId: number;
+        update: TerrainStreamUpdate;
+      }>;
+      const cleanup = (): void => {
+        worker.removeEventListener("message", onMessage);
+        worker.removeEventListener("error", onError);
+      };
+      const onMessage = (event: MessageEvent<WorkerResponse>): void => {
+        if (event.data.requestId !== requestId) {
+          return;
         }
-        resolve(requestId === this.#workerRequestId ? event.data : null);
-      });
-      worker.addEventListener("error", (event) => {
+        cleanup();
+        this.#cancelPendingBuild = null;
+        resolve(event.data.update);
+      };
+      const onError = (event: ErrorEvent): void => {
+        cleanup();
         worker.terminate();
         if (this.#worker === worker) {
           this.#worker = null;
           this.#cancelPendingBuild = null;
         }
         reject(event.error ?? new Error(event.message));
-      });
+      };
+      this.#cancelPendingBuild = () => {
+        cleanup();
+        resolve(null);
+      };
+      worker.addEventListener("message", onMessage);
+      worker.addEventListener("error", onError);
       worker.postMessage({
+        requestId,
         centerChunk,
         chunkSize: this.#chunkSize,
         renderDistance: this.#renderDistance,
         seed: this.#seed,
         edits: this.#serializedEdits(),
       });
+    }).finally(() => {
+      if (backgroundBuildId === this.#backgroundBuildId) {
+        this.#backgroundBuildPending = false;
+      }
     });
   }
 }

@@ -85,6 +85,7 @@ void main() {
   float ambient = environment.x;
   float weather = environment.y;
   float time = environment.z;
+  float flow_time = time;
   float daylight = environment.w;
   vec3 normal = normalize(world_normal);
   float tile = floor(texture_uv.x * ${ATLAS_TILE_COUNT}.0);
@@ -93,16 +94,43 @@ void main() {
   vec2 sample_uv = texture_uv;
   if (water) {
     float tile_start = 8.0 / ${ATLAS_TILE_COUNT}.0;
-    float local_u = fract(texture_uv.x * ${ATLAS_TILE_COUNT}.0);
-    local_u += sin(world_position.x * 1.7 + time * 1.9) * 0.022;
-    local_u += cos(world_position.z * 1.35 - time * 1.4) * 0.018;
-    sample_uv.x = tile_start + clamp(local_u, 0.025, 0.975) / ${ATLAS_TILE_COUNT}.0;
-    sample_uv.y += sin((world_position.x + world_position.z) * 1.2 + time * 2.2) * 0.018;
-    normal = normalize(normal + vec3(
-      sin(world_position.z * 1.8 + time * 2.1) * 0.12,
-      0.0,
-      cos(world_position.x * 1.6 - time * 1.7) * 0.12
-    ));
+    vec2 local_uv = vec2(
+      fract(texture_uv.x * ${ATLAS_TILE_COUNT}.0),
+      fract(texture_uv.y)
+    );
+    bool water_top = normal.y > 0.7;
+
+    if (water_top) {
+      vec2 flow_direction = normalize(vec2(0.82, -0.57));
+      vec2 flowing_uv = fract(
+        local_uv * 1.65 +
+        flow_direction * flow_time * 0.34 +
+        vec2(
+          sin(world_position.z * 1.8 + flow_time * 1.7),
+          cos(world_position.x * 1.6 - flow_time * 1.4)
+        ) * 0.055
+      );
+      sample_uv = vec2(
+        tile_start + flowing_uv.x / ${ATLAS_TILE_COUNT}.0,
+        flowing_uv.y
+      );
+
+      normal = normalize(normal + vec3(
+        sin(world_position.z * 1.8 + flow_time * 2.2) * 0.1,
+        0.0,
+        cos(world_position.x * 1.6 - flow_time * 1.9) * 0.1
+      ));
+    } else {
+      vec2 flowing_uv = fract(vec2(
+        local_uv.x * 1.35 +
+          sin(world_position.y * 2.0 + flow_time) * 0.045,
+        local_uv.y * 1.8 - flow_time * 0.72
+      ));
+      sample_uv = vec2(
+        tile_start + flowing_uv.x / ${ATLAS_TILE_COUNT}.0,
+        flowing_uv.y
+      );
+    }
   }
   vec3 direction_to_light = normalize(-light_direction);
   float diffuse = max(dot(normal, direction_to_light), 0.0);
@@ -267,6 +295,7 @@ export class WebGlRenderer {
 
   #animationFrame = 0;
   #lastFrameTime = 0;
+  #animationSeconds = 0;
   #opaqueVertexCount: number;
   #translucentVertexCount: number;
 
@@ -473,7 +502,7 @@ export class WebGlRenderer {
   start(
     camera: FirstPersonCamera,
     atmosphere: Atmosphere,
-    onFrame: () => void,
+    onFrame: (deltaSeconds: number) => void,
     onContextLost: (reason: string) => void,
   ): void {
     this.#canvas.addEventListener("webglcontextlost", (event) => {
@@ -486,9 +515,10 @@ export class WebGlRenderer {
       const deltaSeconds =
         this.#lastFrameTime === 0 ? 0 : (time - this.#lastFrameTime) / 1000;
       this.#lastFrameTime = time;
+      this.#animationSeconds += Math.min(deltaSeconds, 0.1);
       camera.update(deltaSeconds);
       atmosphere.update(deltaSeconds);
-      onFrame();
+      onFrame(deltaSeconds);
       this.#render(camera, atmosphere);
       this.#animationFrame = requestAnimationFrame(renderFrame);
     };
@@ -604,7 +634,7 @@ export class WebGlRenderer {
       this.#environmentLocation,
       environment.ambient,
       environment.weatherIntensity,
-      environment.timeSeconds,
+      this.#animationSeconds,
       environment.daylight,
     );
     gl.uniform3fv(this.#cameraPositionLocation, camera.position());
