@@ -2,12 +2,7 @@ export type Mat4 = Float32Array;
 export type Vec3 = readonly [number, number, number];
 
 export function identity(): Mat4 {
-  return new Float32Array([
-    1, 0, 0, 0,
-    0, 1, 0, 0,
-    0, 0, 1, 0,
-    0, 0, 0, 1,
-  ]);
+  return new Float32Array([1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1]);
 }
 
 export function multiply(a: Mat4, b: Mat4): Mat4 {

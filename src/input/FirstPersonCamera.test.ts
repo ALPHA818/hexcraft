@@ -1,9 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import {
-  cameraForward,
-  FirstPersonCamera,
-} from "./FirstPersonCamera.ts";
+import { cameraForward, FirstPersonCamera } from "./FirstPersonCamera.ts";
 
 afterEach(() => {
   vi.unstubAllGlobals();
@@ -33,11 +30,7 @@ describe("first-person camera direction", () => {
       groundYAt: () => 0,
       isSolidAtWorld: () => false,
     };
-    const camera = new FirstPersonCamera(
-      {} as HTMLCanvasElement,
-      world,
-      true,
-    );
+    const camera = new FirstPersonCamera({} as HTMLCanvasElement, world, true);
     camera.spawnAt(0, 0);
     const before = camera.position()[2];
 
@@ -85,5 +78,46 @@ describe("first-person camera direction", () => {
     camera.resumeInput();
 
     expect(requestPointerLock).toHaveBeenCalledOnce();
+  });
+
+  it("reports when the player is in water", () => {
+    const camera = new FirstPersonCamera(
+      {} as HTMLCanvasElement,
+      {
+        groundYAt: () => 0,
+        isSolidAtWorld: () => false,
+        isFluidAtWorld: () => true,
+      },
+      true,
+    );
+
+    camera.spawnAt(0, 0);
+    camera.update(1 / 30);
+
+    expect(camera.state().inWater).toBe(true);
+  });
+
+  it("reports fall distance after landing", () => {
+    const camera = new FirstPersonCamera(
+      {} as HTMLCanvasElement,
+      {
+        groundYAt: () => 0,
+        isSolidAtWorld: () => false,
+      },
+      true,
+    );
+
+    camera.setPosition([0, 10, 0]);
+    let landedFallDistance = 0;
+    for (let frame = 0; frame < 90; frame += 1) {
+      camera.update(1 / 30);
+      if (camera.state().grounded && camera.state().fallDistance > 0) {
+        landedFallDistance = camera.state().fallDistance;
+        break;
+      }
+    }
+
+    expect(camera.state().grounded).toBe(true);
+    expect(landedFallDistance).toBeGreaterThan(0);
   });
 });

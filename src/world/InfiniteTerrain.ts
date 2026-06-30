@@ -9,30 +9,54 @@ import {
   TERRAIN_DEPTH_BLOCKS,
   TerrainMaterial,
   type TerrainChunkMesh,
-  type TerrainBiome,
   type TerrainColumn,
 } from "../geometry/terrainChunk.ts";
+import {
+  DEFAULT_WORLD_SEED,
+  generateTerrainColumn,
+} from "./TerrainGenerator.ts";
+import { blockDefinitionFor, type BlockDefinition } from "./blocks.ts";
+import {
+  axialDistance,
+  directionFromFace,
+  HORIZONTAL_HEX_DIRECTIONS,
+  neighborOf,
+  VERTICAL_DIRECTIONS,
+  type VoxelFace,
+  voxelKey,
+  type AxialPosition,
+  type VoxelPosition,
+} from "./voxelRules.ts";
+
+export type { AxialPosition, VoxelPosition } from "./voxelRules.ts";
+export {
+  DEFAULT_WORLD_SEED,
+  biomeAt,
+  caveAt,
+  generateTerrainColumn,
+  oreMaterialAt,
+  terrainHeightAt,
+  terrainProfileAt,
+  treeHeightAt,
+} from "./TerrainGenerator.ts";
 
 export type WorldPosition = Readonly<{
   x: number;
   z: number;
 }>;
 
-export type AxialPosition = Readonly<{
-  q: number;
-  r: number;
-}>;
-
-export type VoxelPosition = AxialPosition &
-  Readonly<{
-    level: number;
-  }>;
-
 export type VoxelRaycastHit = Readonly<{
   voxel: VoxelPosition;
-  adjacent: VoxelPosition | null;
+  face: VoxelFace;
+  adjacent: VoxelPosition;
   material: TerrainMaterial;
+  block: BlockDefinition;
   distance: number;
+}>;
+
+export type VoxelRaycastOptions = Readonly<{
+  maximumDistance?: number;
+  includeFluids?: boolean;
 }>;
 
 export type TerrainStreamUpdate = Readonly<{
@@ -49,6 +73,20 @@ export type TerrainEdit = readonly [
   material: TerrainMaterial,
 ];
 
+export type TerrainEditChunk = Readonly<{
+  chunkKey: string;
+  chunkQ: number;
+  chunkR: number;
+  edits: readonly TerrainEdit[];
+}>;
+
+type MutableTerrainEditChunk = {
+  chunkKey: string;
+  chunkQ: number;
+  chunkR: number;
+  edits: TerrainEdit[];
+};
+
 export type TerrainBuildResult = Readonly<{
   update: TerrainStreamUpdate;
   columns: readonly TerrainColumn[];
@@ -60,20 +98,12 @@ type WaterFlowNode = Readonly<{
   remainingFallDistance: number;
 }>;
 
-export const DEFAULT_WORLD_SEED = 0x484558;
 export const DEFAULT_CHUNK_SIZE = 8;
 export const DEFAULT_RENDER_DISTANCE = 4;
-const HEX_DIRECTIONS: ReadonlyArray<readonly [number, number]> = [
-  [0, 0],
-  [1, 0],
-  [0, 1],
-  [-1, 1],
-  [-1, 0],
-  [0, -1],
-  [1, -1],
-];
-const HORIZONTAL_DIRECTIONS: ReadonlyArray<readonly [number, number]> =
-  HEX_DIRECTIONS.slice(1);
+const CENTER_AND_HORIZONTAL_DIRECTIONS = [
+  { q: 0, r: 0 },
+  ...HORIZONTAL_HEX_DIRECTIONS,
+] as const;
 const MAX_WATER_HORIZONTAL_DISTANCE = 3;
 const MAX_WATER_FALL_DISTANCE = 12;
 const MAX_WATER_CHANGES_PER_STEP = 12;
@@ -82,99 +112,25 @@ const WATER_FLOW_STEP_SECONDS = 0.08;
 const LEAF_SUPPORT_DISTANCE = 5;
 const LEAF_DECAY_SCAN_RADIUS = 3;
 const LEAF_DECAY_LEVEL_RADIUS = 8;
+const HEX_APOTHEM = TERRAIN_BLOCK_RADIUS * Math.cos(Math.PI / 6);
+const RAYCAST_SAMPLE_STEP = 0.16;
+const RAYCAST_EPSILON = 1e-6;
 
-function interpolate(a: number, b: number, amount: number): number {
-  return a + (b - a) * amount;
-}
+type NormalizedDirection = readonly [number, number, number];
 
-function smoothStep(value: number): number {
-  return value * value * (3 - 2 * value);
-}
+type VoxelRayIntersection = Readonly<{
+  distance: number;
+  face: VoxelFace;
+}>;
 
-function rangeStep(minimum: number, maximum: number, value: number): number {
-  return smoothStep(
-    Math.max(0, Math.min(1, (value - minimum) / (maximum - minimum))),
-  );
-}
+function normalizeRayDirection(
+  direction: readonly [number, number, number],
+): NormalizedDirection | null {
+  const length = Math.hypot(direction[0], direction[1], direction[2]);
 
-function axialDistance(
-  a: AxialPosition,
-  b: AxialPosition,
-): number {
-  const dq = a.q - b.q;
-  const dr = a.r - b.r;
-  return (Math.abs(dq) + Math.abs(dr) + Math.abs(dq + dr)) / 2;
-}
-
-function hash2d(x: number, z: number, seed: number): number {
-  let value =
-    Math.imul(x, 0x1f123bb5) ^
-    Math.imul(z, 0x5f356495) ^
-    Math.imul(seed, 0x2c1b3c6d);
-  value = Math.imul(value ^ (value >>> 15), 0x45d9f3b);
-  value = Math.imul(value ^ (value >>> 13), 0x45d9f3b);
-  value ^= value >>> 16;
-  return (value >>> 0) / 0xffffffff;
-}
-
-function valueNoise(x: number, z: number, seed: number): number {
-  const minimumX = Math.floor(x);
-  const minimumZ = Math.floor(z);
-  const fractionX = smoothStep(x - minimumX);
-  const fractionZ = smoothStep(z - minimumZ);
-  const north = interpolate(
-    hash2d(minimumX, minimumZ, seed),
-    hash2d(minimumX + 1, minimumZ, seed),
-    fractionX,
-  );
-  const south = interpolate(
-    hash2d(minimumX, minimumZ + 1, seed),
-    hash2d(minimumX + 1, minimumZ + 1, seed),
-    fractionX,
-  );
-
-  return interpolate(north, south, fractionZ);
-}
-
-function hash3d(x: number, y: number, z: number, seed: number): number {
-  let value =
-    Math.imul(x, 0x1f123bb5) ^
-    Math.imul(y, 0x6c8e9cf5) ^
-    Math.imul(z, 0x5f356495) ^
-    Math.imul(seed, 0x2c1b3c6d);
-  value = Math.imul(value ^ (value >>> 15), 0x45d9f3b);
-  value = Math.imul(value ^ (value >>> 13), 0x45d9f3b);
-  value ^= value >>> 16;
-  return (value >>> 0) / 0xffffffff;
-}
-
-function valueNoise3d(
-  x: number,
-  y: number,
-  z: number,
-  seed: number,
-): number {
-  const minimumX = Math.floor(x);
-  const minimumY = Math.floor(y);
-  const minimumZ = Math.floor(z);
-  const fractionX = smoothStep(x - minimumX);
-  const fractionY = smoothStep(y - minimumY);
-  const fractionZ = smoothStep(z - minimumZ);
-  const layer = (offsetY: number): number => {
-    const north = interpolate(
-      hash3d(minimumX, minimumY + offsetY, minimumZ, seed),
-      hash3d(minimumX + 1, minimumY + offsetY, minimumZ, seed),
-      fractionX,
-    );
-    const south = interpolate(
-      hash3d(minimumX, minimumY + offsetY, minimumZ + 1, seed),
-      hash3d(minimumX + 1, minimumY + offsetY, minimumZ + 1, seed),
-      fractionX,
-    );
-    return interpolate(north, south, fractionZ);
-  };
-
-  return interpolate(layer(0), layer(1), fractionY);
+  return length > RAYCAST_EPSILON
+    ? [direction[0] / length, direction[1] / length, direction[2] / length]
+    : null;
 }
 
 function roundAxial(q: number, r: number): AxialPosition {
@@ -215,312 +171,9 @@ export function worldToAxial(
   z: number,
   blockRadius = TERRAIN_BLOCK_RADIUS,
 ): AxialPosition {
-  const q = (Math.sqrt(3) / 3 * x - z / 3) / blockRadius;
+  const q = ((Math.sqrt(3) / 3) * x - z / 3) / blockRadius;
   const r = ((2 / 3) * z) / blockRadius;
   return roundAxial(q, r);
-}
-
-type TerrainProfile = Readonly<{
-  height: number;
-  waterLevel: number;
-  biome: TerrainBiome;
-  river: boolean;
-  mountain: boolean;
-}>;
-
-function terrainProfileAt(
-  q: number,
-  r: number,
-  seed = DEFAULT_WORLD_SEED,
-): TerrainProfile {
-  const { x, z } = axialToWorld(q, r);
-  const continents = valueNoise(x * 0.018, z * 0.018, seed);
-  const hills = valueNoise(x * 0.052, z * 0.052, seed + 101);
-  const detail = valueNoise(x * 0.14, z * 0.14, seed + 211);
-  const ridgeNoise = valueNoise(x * 0.025, z * 0.025, seed + 307);
-  const ridge = 1 - Math.abs(ridgeNoise * 2 - 1);
-  const mountainField = valueNoise(x * 0.011, z * 0.011, seed + 359);
-  const mountainStrength =
-    rangeStep(0.48, 0.78, mountainField) * ridge * ridge;
-  const rawHeight =
-    5 +
-    continents * 9 +
-    hills * 3.6 +
-    detail * 1.6 +
-    mountainStrength * 20;
-  const riverWarpX =
-    (valueNoise(x * 0.012, z * 0.012, seed + 401) - 0.5) * 24;
-  const riverWarpZ =
-    (valueNoise(x * 0.012, z * 0.012, seed + 433) - 0.5) * 24;
-  const riverField = valueNoise(
-    (x + riverWarpX) * 0.021,
-    (z + riverWarpZ) * 0.021,
-    seed + 467,
-  );
-  const riverDistance = Math.abs(riverField - 0.5);
-  const riverStrength =
-    (1 - rangeStep(0.018, 0.075, riverDistance)) *
-    (1 - mountainStrength * 0.72);
-  const waterLevel = Math.round(8 + continents * 5);
-  const carvedHeight = interpolate(
-    rawHeight,
-    waterLevel - 1.2,
-    riverStrength,
-  );
-  const height = Math.max(3, Math.min(38, Math.round(carvedHeight)));
-  const river = riverStrength > 0.48 && height < waterLevel;
-  const temperature =
-    valueNoise(x * 0.008, z * 0.008, seed + 503) -
-    mountainStrength * 0.35 -
-    height * 0.006;
-  const moisture =
-    valueNoise(x * 0.01, z * 0.01, seed + 547) +
-    riverStrength * 0.35;
-  let biome: TerrainBiome;
-
-  if (height >= 28 || (mountainStrength > 0.62 && temperature < 0.52)) {
-    biome = "snow";
-  } else if (height >= 21 || mountainStrength > 0.42) {
-    biome = "alpine";
-  } else if (temperature < 0.28) {
-    biome = "tundra";
-  } else if (temperature > 0.56 && moisture < 0.35) {
-    biome = "desert";
-  } else if (moisture > 0.58) {
-    biome = "forest";
-  } else {
-    biome = "grassland";
-  }
-
-  return {
-    height,
-    waterLevel: river ? waterLevel : 0,
-    biome,
-    river,
-    mountain: mountainStrength > 0.38 || height >= 21,
-  };
-}
-
-export function terrainHeightAt(
-  q: number,
-  r: number,
-  seed = DEFAULT_WORLD_SEED,
-): number {
-  return TERRAIN_DEPTH_BLOCKS + terrainProfileAt(q, r, seed).height;
-}
-
-export function biomeAt(
-  q: number,
-  r: number,
-  seed = DEFAULT_WORLD_SEED,
-): TerrainBiome {
-  return terrainProfileAt(q, r, seed).biome;
-}
-
-export function caveAt(
-  q: number,
-  r: number,
-  level: number,
-  surfaceHeight: number,
-  seed = DEFAULT_WORLD_SEED,
-): boolean {
-  const localLevel = level - TERRAIN_DEPTH_BLOCKS;
-  const localSurfaceHeight = surfaceHeight - TERRAIN_DEPTH_BLOCKS;
-
-  if (localLevel < 2 || localLevel >= localSurfaceHeight) {
-    return false;
-  }
-
-  const tunnel = Math.abs(
-    valueNoise3d(
-      q * 0.105,
-      localLevel * 0.14,
-      r * 0.105,
-      seed + 601,
-    ) - 0.5,
-  );
-  const chamber = valueNoise3d(
-    q * 0.062,
-    localLevel * 0.09,
-    r * 0.062,
-    seed + 647,
-  );
-  const cave =
-    localLevel < localSurfaceHeight - 1 &&
-    tunnel < 0.075 &&
-    chamber > 0.34;
-  const entranceField = valueNoise(
-    q * 0.095,
-    r * 0.095,
-    seed + 691,
-  );
-  const entrance =
-    entranceField > 0.81 &&
-    localLevel >= localSurfaceHeight - 6 &&
-    tunnel < 0.15;
-
-  return cave || entrance;
-}
-
-function surfaceMaterial(
-  biome: TerrainBiome,
-  moistureVariant: number,
-): TerrainMaterial {
-  switch (biome) {
-    case "desert":
-      return TerrainMaterial.Sand;
-    case "snow":
-    case "tundra":
-      return TerrainMaterial.Snow;
-    case "alpine":
-      return TerrainMaterial.AlpineRock;
-    case "grassland":
-      return moistureVariant < 0.42
-        ? TerrainMaterial.DryGrass
-        : TerrainMaterial.Grass;
-    case "forest":
-    default:
-      return TerrainMaterial.Grass;
-  }
-}
-
-export function treeHeightAt(
-  q: number,
-  r: number,
-  seed = DEFAULT_WORLD_SEED,
-): number {
-  const profile = terrainProfileAt(q, r, seed);
-
-  if (
-    profile.river ||
-    profile.mountain ||
-    (profile.biome !== "forest" && profile.biome !== "grassland")
-  ) {
-    return 0;
-  }
-
-  const chance = hash2d(q, r, seed + 797);
-  const threshold = profile.biome === "forest" ? 0.925 : 0.985;
-
-  if (chance < threshold) {
-    return 0;
-  }
-
-  return 4 + Math.floor(hash2d(q, r, seed + 829) * 3);
-}
-
-export function generateTerrainColumn(
-  q: number,
-  r: number,
-  seed = DEFAULT_WORLD_SEED,
-  visible = true,
-): TerrainColumn {
-  const profile = terrainProfileAt(q, r, seed);
-  const surfaceHeight = TERRAIN_DEPTH_BLOCKS + profile.height;
-  const waterLevel =
-    profile.waterLevel > 0
-      ? TERRAIN_DEPTH_BLOCKS + profile.waterLevel
-      : 0;
-  const maximumLevel = Math.max(surfaceHeight, waterLevel) + 8;
-  const blocks = new Uint8Array(maximumLevel);
-  const moistureVariant = valueNoise(
-    q * 0.037,
-    r * 0.037,
-    seed + 733,
-  );
-  const topMaterial = surfaceMaterial(profile.biome, moistureVariant);
-  let caveAirCount = 0;
-
-  blocks.fill(
-    TerrainMaterial.Stone,
-    0,
-    Math.min(TERRAIN_DEPTH_BLOCKS, surfaceHeight),
-  );
-
-  for (
-    let level = TERRAIN_DEPTH_BLOCKS;
-    level < surfaceHeight;
-    level += 1
-  ) {
-    const depth = surfaceHeight - level;
-    let material: TerrainMaterial;
-
-    if (depth === 1) {
-      material = topMaterial;
-    } else if (depth <= 3) {
-      material =
-        profile.biome === "desert"
-          ? TerrainMaterial.Sand
-          : profile.biome === "alpine" || profile.biome === "snow"
-            ? TerrainMaterial.AlpineRock
-            : TerrainMaterial.Dirt;
-    } else {
-      material =
-        profile.mountain && level > surfaceHeight - 8
-          ? TerrainMaterial.AlpineRock
-          : TerrainMaterial.Stone;
-    }
-
-    if (caveAt(q, r, level, surfaceHeight, seed)) {
-      blocks[level] = TerrainMaterial.Air;
-      caveAirCount += 1;
-    } else {
-      blocks[level] = material;
-    }
-  }
-
-  for (
-    let level = surfaceHeight;
-    level < waterLevel;
-    level += 1
-  ) {
-    blocks[level] = TerrainMaterial.Water;
-  }
-
-  for (const [offsetQ, offsetR] of HEX_DIRECTIONS) {
-    const treeQ = q + offsetQ;
-    const treeR = r + offsetR;
-    const treeHeight = treeHeightAt(treeQ, treeR, seed);
-
-    if (treeHeight === 0) {
-      continue;
-    }
-
-    const treeBase =
-      TERRAIN_DEPTH_BLOCKS +
-      terrainProfileAt(treeQ, treeR, seed).height;
-    const isTrunkColumn = offsetQ === 0 && offsetR === 0;
-
-    if (isTrunkColumn) {
-      for (let level = treeBase; level < treeBase + treeHeight; level += 1) {
-        blocks[level] = TerrainMaterial.Wood;
-      }
-      blocks[treeBase + treeHeight] = TerrainMaterial.Leaves;
-    } else {
-      for (
-        let level = treeBase + treeHeight - 2;
-        level <= treeBase + treeHeight;
-        level += 1
-      ) {
-        if (blocks[level] === TerrainMaterial.Air) {
-          blocks[level] = TerrainMaterial.Leaves;
-        }
-      }
-    }
-  }
-
-  return {
-    q,
-    r,
-    height: surfaceHeight,
-    visible,
-    blocks,
-    biome: profile.biome,
-    river: profile.river,
-    mountain: profile.mountain,
-    caveAirCount,
-    minimumMeshLevel: TERRAIN_DEPTH_BLOCKS,
-  };
 }
 
 export function chunkAtAxial(
@@ -534,6 +187,180 @@ export function chunkAtAxial(
   };
 }
 
+export function chunkKeyAtAxial(
+  q: number,
+  r: number,
+  chunkSize = DEFAULT_CHUNK_SIZE,
+): string {
+  const chunk = chunkAtAxial(q, r, chunkSize);
+  return `${chunk.q},${chunk.r}`;
+}
+
+function voxelUpperY(material: TerrainMaterial, level: number): number {
+  const lowerY = TERRAIN_BASE_Y + level * TERRAIN_BLOCK_HEIGHT;
+
+  return (
+    lowerY +
+    TERRAIN_BLOCK_HEIGHT * (material === TerrainMaterial.Water ? 0.86 : 1)
+  );
+}
+
+function isRaycastTargetForOptions(
+  material: TerrainMaterial,
+  options: VoxelRaycastOptions,
+): boolean {
+  return (
+    isRaycastTargetMaterial(material) ||
+    (options.includeFluids === true && isFluidMaterial(material))
+  );
+}
+
+function collectRaycastCandidates(
+  origin: readonly [number, number, number],
+  direction: NormalizedDirection,
+  maximumDistance: number,
+): VoxelPosition[] {
+  const candidates = new Map<string, VoxelPosition>();
+
+  const addCandidate = (candidate: VoxelPosition): void => {
+    if (candidate.level < 0) {
+      return;
+    }
+
+    candidates.set(
+      voxelKey(candidate.q, candidate.r, candidate.level),
+      candidate,
+    );
+  };
+
+  for (
+    let distance = 0;
+    distance <= maximumDistance + RAYCAST_EPSILON;
+    distance += RAYCAST_SAMPLE_STEP
+  ) {
+    const x = origin[0] + direction[0] * distance;
+    const y = origin[1] + direction[1] * distance;
+    const z = origin[2] + direction[2] * distance;
+    const axial = worldToAxial(x, z);
+    const level = Math.floor((y - TERRAIN_BASE_Y) / TERRAIN_BLOCK_HEIGHT);
+
+    for (let levelOffset = -1; levelOffset <= 1; levelOffset += 1) {
+      const candidateLevel = level + levelOffset;
+      addCandidate({ ...axial, level: candidateLevel });
+
+      for (const direction of HORIZONTAL_HEX_DIRECTIONS) {
+        addCandidate({
+          q: axial.q + direction.q,
+          r: axial.r + direction.r,
+          level: candidateLevel,
+        });
+      }
+    }
+  }
+
+  return [...candidates.values()];
+}
+
+function intersectRayWithVoxel(
+  origin: readonly [number, number, number],
+  direction: NormalizedDirection,
+  voxel: VoxelPosition,
+  material: TerrainMaterial,
+  maximumDistance: number,
+): VoxelRayIntersection | null {
+  const center = axialToWorld(voxel.q, voxel.r);
+  const lowerY = TERRAIN_BASE_Y + voxel.level * TERRAIN_BLOCK_HEIGHT;
+  const upperY = voxelUpperY(material, voxel.level);
+  let enterDistance = 0;
+  let exitDistance = maximumDistance;
+  let enterFace: VoxelFace | null = null;
+  let exitFace: VoxelFace | null = null;
+
+  const clipMaximumPlane = (
+    normalX: number,
+    normalZ: number,
+    maximum: number,
+    face: VoxelFace,
+  ): boolean => {
+    const originOffset =
+      (origin[0] - center.x) * normalX + (origin[2] - center.z) * normalZ;
+    const directionSpeed = direction[0] * normalX + direction[2] * normalZ;
+    const signedDistance = originOffset - maximum;
+
+    if (Math.abs(directionSpeed) < RAYCAST_EPSILON) {
+      return signedDistance <= RAYCAST_EPSILON;
+    }
+
+    const planeDistance = -signedDistance / directionSpeed;
+    if (directionSpeed < 0) {
+      if (planeDistance > enterDistance + RAYCAST_EPSILON) {
+        enterDistance = planeDistance;
+        enterFace = face;
+      }
+    } else if (planeDistance < exitDistance) {
+      exitDistance = planeDistance;
+      exitFace = face;
+    }
+
+    return enterDistance <= exitDistance + RAYCAST_EPSILON;
+  };
+
+  const clipYInterval = (): boolean => {
+    if (Math.abs(direction[1]) < RAYCAST_EPSILON) {
+      return (
+        origin[1] >= lowerY - RAYCAST_EPSILON &&
+        origin[1] <= upperY + RAYCAST_EPSILON
+      );
+    }
+
+    const lowerDistance = (lowerY - origin[1]) / direction[1];
+    const upperDistance = (upperY - origin[1]) / direction[1];
+    const enteringDistance = Math.min(lowerDistance, upperDistance);
+    const leavingDistance = Math.max(lowerDistance, upperDistance);
+    const enteringFace = direction[1] > 0 ? "bottom" : "top";
+    const leavingFace = direction[1] > 0 ? "top" : "bottom";
+
+    if (enteringDistance > enterDistance + RAYCAST_EPSILON) {
+      enterDistance = enteringDistance;
+      enterFace = enteringFace;
+    }
+    if (leavingDistance < exitDistance) {
+      exitDistance = leavingDistance;
+      exitFace = leavingFace;
+    }
+
+    return enterDistance <= exitDistance + RAYCAST_EPSILON;
+  };
+
+  for (let side = 0; side < 6; side += 1) {
+    const angle = side * (Math.PI / 3);
+    if (
+      !clipMaximumPlane(
+        Math.cos(angle),
+        Math.sin(angle),
+        HEX_APOTHEM,
+        side as VoxelFace,
+      )
+    ) {
+      return null;
+    }
+  }
+
+  if (!clipYInterval() || exitDistance < -RAYCAST_EPSILON) {
+    return null;
+  }
+
+  const distance = Math.max(0, enterDistance);
+  if (distance > maximumDistance + RAYCAST_EPSILON) {
+    return null;
+  }
+
+  return {
+    distance,
+    face: enterFace ?? exitFace ?? "top",
+  };
+}
+
 export function generateStreamedColumns(
   centerChunk: AxialPosition,
   chunkSize = DEFAULT_CHUNK_SIZE,
@@ -542,11 +369,9 @@ export function generateStreamedColumns(
   columnCache?: Map<string, TerrainColumn>,
 ): TerrainColumn[] {
   const minimumQ = (centerChunk.q - renderDistance) * chunkSize;
-  const maximumQ =
-    (centerChunk.q + renderDistance + 1) * chunkSize - 1;
+  const maximumQ = (centerChunk.q + renderDistance + 1) * chunkSize - 1;
   const minimumR = (centerChunk.r - renderDistance) * chunkSize;
-  const maximumR =
-    (centerChunk.r + renderDistance + 1) * chunkSize - 1;
+  const maximumR = (centerChunk.r + renderDistance + 1) * chunkSize - 1;
   const columns: TerrainColumn[] = [];
 
   // The one-cell padding is used only for neighbor heights. It prevents fake
@@ -562,10 +387,7 @@ export function generateStreamedColumns(
       columns.push({
         ...column,
         visible:
-          q >= minimumQ &&
-          q <= maximumQ &&
-          r >= minimumR &&
-          r <= maximumR,
+          q >= minimumQ && q <= maximumQ && r >= minimumR && r <= maximumR,
       });
     }
   }
@@ -600,14 +422,13 @@ export function buildTerrainStream(
       editsByColumn.set(key, [edit]);
     }
 
-    for (const [offsetQ, offsetR] of HEX_DIRECTIONS) {
-      const affectedKey = `${edit[0] + offsetQ},${edit[1] + offsetR}`;
+    for (const direction of CENTER_AND_HORIZONTAL_DIRECTIONS) {
+      const affectedKey = `${edit[0] + direction.q},${edit[1] + direction.r}`;
       const minimumLevel = Math.max(0, edit[2] - 1);
       minimumMeshLevelByColumn.set(
         affectedKey,
         Math.min(
-          minimumMeshLevelByColumn.get(affectedKey) ??
-            Number.POSITIVE_INFINITY,
+          minimumMeshLevelByColumn.get(affectedKey) ?? Number.POSITIVE_INFINITY,
           minimumLevel,
         ),
       );
@@ -617,8 +438,7 @@ export function buildTerrainStream(
   const editedColumns = columns.map((column) => {
     const key = `${column.q},${column.r}`;
     const columnEdits = editsByColumn.get(key);
-    const affectedMinimumLevel =
-      minimumMeshLevelByColumn.get(key);
+    const affectedMinimumLevel = minimumMeshLevelByColumn.get(key);
     const minimumMeshLevel =
       affectedMinimumLevel === undefined
         ? column.minimumMeshLevel
@@ -686,11 +506,7 @@ export class InfiniteTerrain {
 
   update(position: WorldPosition): TerrainStreamUpdate | null {
     const axial = worldToAxial(position.x, position.z);
-    const centerChunk = chunkAtAxial(
-      axial.q,
-      axial.r,
-      this.#chunkSize,
-    );
+    const centerChunk = chunkAtAxial(axial.q, axial.r, this.#chunkSize);
 
     if (
       this.#centerChunk?.q === centerChunk.q &&
@@ -707,11 +523,7 @@ export class InfiniteTerrain {
     position: WorldPosition,
   ): Promise<TerrainStreamUpdate | null> | null {
     const axial = worldToAxial(position.x, position.z);
-    const centerChunk = chunkAtAxial(
-      axial.q,
-      axial.r,
-      this.#chunkSize,
-    );
+    const centerChunk = chunkAtAxial(axial.q, axial.r, this.#chunkSize);
 
     if (
       this.#centerChunk?.q === centerChunk.q &&
@@ -731,10 +543,7 @@ export class InfiniteTerrain {
   advanceWaterFlow(
     deltaSeconds: number,
   ): Promise<TerrainStreamUpdate | null> | null {
-    if (
-      !this.#centerChunk ||
-      this.#waterFlowQueue.length === 0
-    ) {
+    if (!this.#centerChunk || this.#waterFlowQueue.length === 0) {
       return null;
     }
 
@@ -753,15 +562,11 @@ export class InfiniteTerrain {
     let completedSteps = 0;
     let changed = false;
 
-    while (
-      completedSteps < availableSteps &&
-      this.#waterFlowQueue.length > 0
-    ) {
+    while (completedSteps < availableSteps && this.#waterFlowQueue.length > 0) {
       changed = this.#advanceWaterFlowStep() || changed;
       completedSteps += 1;
     }
-    this.#waterFlowElapsed -=
-      completedSteps * WATER_FLOW_STEP_SECONDS;
+    this.#waterFlowElapsed -= completedSteps * WATER_FLOW_STEP_SECONDS;
 
     if (!changed) {
       this.#waterFlowElapsed = 0;
@@ -796,6 +601,71 @@ export class InfiniteTerrain {
     return (column.blocks?.[level] ?? TerrainMaterial.Air) as TerrainMaterial;
   }
 
+  exportTerrainEdits(): TerrainEdit[] {
+    return this.#serializedEdits();
+  }
+
+  exportTerrainEditChunks(): TerrainEditChunk[] {
+    const chunks = new Map<string, MutableTerrainEditChunk>();
+
+    for (const edit of this.#serializedEdits()) {
+      const chunk = chunkAtAxial(edit[0], edit[1], this.#chunkSize);
+      const chunkKey = `${chunk.q},${chunk.r}`;
+      let editChunk = chunks.get(chunkKey);
+
+      if (!editChunk) {
+        editChunk = {
+          chunkKey,
+          chunkQ: chunk.q,
+          chunkR: chunk.r,
+          edits: [],
+        };
+        chunks.set(chunkKey, editChunk);
+      }
+      editChunk.edits.push(edit);
+    }
+
+    return [...chunks.values()].map((chunk) => ({
+      ...chunk,
+      edits: [...chunk.edits],
+    }));
+  }
+
+  importTerrainEdits(edits: readonly TerrainEdit[], replace = true): void {
+    if (replace) {
+      this.#edits.clear();
+      this.#flowingWater.clear();
+      this.#queuedWaterFlow.clear();
+      this.#waterFlowQueue = [];
+      this.#waterFlowElapsed = 0;
+    }
+
+    for (const [q, r, level, material] of edits) {
+      if (level < 0) {
+        continue;
+      }
+
+      const key = `${q},${r}`;
+      let columnEdits = this.#edits.get(key);
+      if (!columnEdits) {
+        columnEdits = new Map();
+        this.#edits.set(key, columnEdits);
+      }
+      columnEdits.set(level, material);
+      this.#columnCache.delete(key);
+    }
+  }
+
+  importTerrainEditChunks(
+    chunks: readonly Pick<TerrainEditChunk, "edits">[],
+    replace = true,
+  ): void {
+    this.importTerrainEdits(
+      chunks.flatMap((chunk) => [...chunk.edits]),
+      replace,
+    );
+  }
+
   isSolidAt(q: number, r: number, level: number): boolean {
     const material = this.materialAt(q, r, level);
     return isCollisionSolidMaterial(material);
@@ -803,6 +673,12 @@ export class InfiniteTerrain {
 
   isFluidAt(q: number, r: number, level: number): boolean {
     return isFluidMaterial(this.materialAt(q, r, level));
+  }
+
+  isColumnLoaded(q: number, r: number): boolean {
+    const column = this.#loadedColumns.get(`${q},${r}`);
+
+    return column !== undefined && column.visible !== false;
   }
 
   groundYAt(x: number, z: number, maximumY: number): number {
@@ -824,57 +700,80 @@ export class InfiniteTerrain {
   raycast(
     origin: readonly [number, number, number],
     direction: readonly [number, number, number],
-    maximumDistance = 6,
+    maximumDistanceOrOptions: number | VoxelRaycastOptions = 6,
+    options: VoxelRaycastOptions = {},
   ): VoxelRaycastHit | null {
-    let previous: VoxelPosition | null = null;
-    let previousKey = "";
+    const raycastOptions =
+      typeof maximumDistanceOrOptions === "number"
+        ? options
+        : maximumDistanceOrOptions;
+    const maximumDistance =
+      typeof maximumDistanceOrOptions === "number"
+        ? maximumDistanceOrOptions
+        : (maximumDistanceOrOptions.maximumDistance ?? 6);
+    const normalizedDirection = normalizeRayDirection(direction);
 
-    for (let distance = 0; distance <= maximumDistance; distance += 0.06) {
-      const x = origin[0] + direction[0] * distance;
-      const y = origin[1] + direction[1] * distance;
-      const z = origin[2] + direction[2] * distance;
-      const { q, r } = worldToAxial(x, z);
-      const level = Math.floor(
-        (y - TERRAIN_BASE_Y) / TERRAIN_BLOCK_HEIGHT,
-      );
-      const key = `${q},${r},${level}`;
+    if (!normalizedDirection || maximumDistance <= 0) {
+      return null;
+    }
 
-      if (key === previousKey) {
+    let closestHit: VoxelRaycastHit | null = null;
+
+    for (const voxel of collectRaycastCandidates(
+      origin,
+      normalizedDirection,
+      maximumDistance,
+    )) {
+      if (!this.isColumnLoaded(voxel.q, voxel.r)) {
         continue;
       }
 
-      const voxel = { q, r, level };
-      const material = this.materialAt(q, r, level);
-
-      if (isRaycastTargetMaterial(material)) {
-        return {
-          voxel,
-          adjacent: previous,
-          material,
-          distance,
-        };
+      const material = this.materialAt(voxel.q, voxel.r, voxel.level);
+      if (!isRaycastTargetForOptions(material, raycastOptions)) {
+        continue;
       }
 
-      previous = voxel;
-      previousKey = key;
+      const intersection = intersectRayWithVoxel(
+        origin,
+        normalizedDirection,
+        voxel,
+        material,
+        maximumDistance,
+      );
+
+      if (
+        !intersection ||
+        (closestHit &&
+          intersection.distance >= closestHit.distance - RAYCAST_EPSILON)
+      ) {
+        continue;
+      }
+
+      const block = blockDefinitionFor(material);
+      const faceDirection = directionFromFace(intersection.face);
+
+      closestHit = {
+        voxel,
+        face: intersection.face,
+        adjacent: neighborOf(voxel, faceDirection),
+        material,
+        block,
+        distance: intersection.distance,
+      };
     }
 
-    return null;
+    return closestHit;
   }
 
   isSolidAtWorld(x: number, y: number, z: number): boolean {
     const { q, r } = worldToAxial(x, z);
-    const level = Math.floor(
-      (y - TERRAIN_BASE_Y) / TERRAIN_BLOCK_HEIGHT,
-    );
+    const level = Math.floor((y - TERRAIN_BASE_Y) / TERRAIN_BLOCK_HEIGHT);
     return this.isSolidAt(q, r, level);
   }
 
   isFluidAtWorld(x: number, y: number, z: number): boolean {
     const { q, r } = worldToAxial(x, z);
-    const level = Math.floor(
-      (y - TERRAIN_BASE_Y) / TERRAIN_BLOCK_HEIGHT,
-    );
+    const level = Math.floor((y - TERRAIN_BASE_Y) / TERRAIN_BLOCK_HEIGHT);
     return this.isFluidAt(q, r, level);
   }
 
@@ -892,11 +791,7 @@ export class InfiniteTerrain {
       position.level,
     );
     this.#setEditedBlock(position, material);
-    this.#applyMaterialConsequences(
-      position,
-      previousMaterial,
-      material,
-    );
+    this.#applyMaterialConsequences(position, previousMaterial, material);
     return this.rebuild();
   }
 
@@ -914,22 +809,13 @@ export class InfiniteTerrain {
       position.level,
     );
     this.#setEditedBlock(position, material);
-    this.#applyMaterialConsequences(
-      position,
-      previousMaterial,
-      material,
-    );
+    this.#applyMaterialConsequences(position, previousMaterial, material);
     return this.#requestBackgroundBuild(this.#centerChunk);
   }
 
-  #setEditedBlock(
-    position: VoxelPosition,
-    material: TerrainMaterial,
-  ): void {
+  #setEditedBlock(position: VoxelPosition, material: TerrainMaterial): void {
     const key = `${position.q},${position.r}`;
-    this.#flowingWater.delete(
-      `${position.q},${position.r},${position.level}`,
-    );
+    this.#flowingWater.delete(voxelKey(position.q, position.r, position.level));
     let columnEdits = this.#edits.get(key);
     if (!columnEdits) {
       columnEdits = new Map();
@@ -945,7 +831,7 @@ export class InfiniteTerrain {
   ): void {
     this.#setEditedBlock(position, TerrainMaterial.Water);
     this.#flowingWater.set(
-      `${position.q},${position.r},${position.level}`,
+      voxelKey(position.q, position.r, position.level),
       horizontalDistance,
     );
   }
@@ -985,36 +871,29 @@ export class InfiniteTerrain {
 
     return (
       this.#flowingWater.get(
-        `${position.q},${position.r},${position.level}`,
+        voxelKey(position.q, position.r, position.level),
       ) ?? 0
     );
   }
 
   #waterInletDistance(origin: VoxelPosition): number | null {
-    const aboveDistance = this.#waterDistanceAt({
-      q: origin.q,
-      r: origin.r,
-      level: origin.level + 1,
-    });
+    const aboveDistance = this.#waterDistanceAt(
+      neighborOf(origin, VERTICAL_DIRECTIONS[0]),
+    );
     if (aboveDistance !== null) {
       return aboveDistance;
     }
 
     let nearestDistance = Number.POSITIVE_INFINITY;
-    for (const [offsetQ, offsetR] of HORIZONTAL_DIRECTIONS) {
-      const neighborDistance = this.#waterDistanceAt({
-        q: origin.q + offsetQ,
-        r: origin.r + offsetR,
-        level: origin.level,
-      });
+    for (const direction of HORIZONTAL_HEX_DIRECTIONS) {
+      const neighborDistance = this.#waterDistanceAt(
+        neighborOf(origin, direction),
+      );
       if (
         neighborDistance !== null &&
         neighborDistance < MAX_WATER_HORIZONTAL_DISTANCE
       ) {
-        nearestDistance = Math.min(
-          nearestDistance,
-          neighborDistance + 1,
-        );
+        nearestDistance = Math.min(nearestDistance, neighborDistance + 1);
       }
     }
 
@@ -1027,12 +906,9 @@ export class InfiniteTerrain {
     remainingFallDistance: number,
     resetTimer = false,
   ): void {
-    const key = `${position.q},${position.r},${position.level}`;
+    const key = voxelKey(position.q, position.r, position.level);
     const queuedDistance = this.#queuedWaterFlow.get(key);
-    if (
-      queuedDistance !== undefined &&
-      queuedDistance <= horizontalDistance
-    ) {
+    if (queuedDistance !== undefined && queuedDistance <= horizontalDistance) {
       return;
     }
 
@@ -1071,16 +947,13 @@ export class InfiniteTerrain {
 
     for (
       let processed = 0;
-      processed < queuedAtStart &&
-      changedBlocks < MAX_WATER_CHANGES_PER_STEP;
+      processed < queuedAtStart && changedBlocks < MAX_WATER_CHANGES_PER_STEP;
       processed += 1
     ) {
       const node = this.#waterFlowQueue.shift()!;
       const { position } = node;
-      const key = `${position.q},${position.r},${position.level}`;
-      if (
-        this.#queuedWaterFlow.get(key) !== node.horizontalDistance
-      ) {
+      const key = voxelKey(position.q, position.r, position.level);
+      if (this.#queuedWaterFlow.get(key) !== node.horizontalDistance) {
         continue;
       }
       this.#queuedWaterFlow.delete(key);
@@ -1099,11 +972,7 @@ export class InfiniteTerrain {
 
       let falls = false;
       if (node.remainingFallDistance > 0 && position.level > 0) {
-        const below = {
-          q: position.q,
-          r: position.r,
-          level: position.level - 1,
-        };
+        const below = neighborOf(position, VERTICAL_DIRECTIONS[1]);
 
         if (this.#isWaterFillable(below)) {
           this.#queueWaterFlow(
@@ -1115,16 +984,9 @@ export class InfiniteTerrain {
         }
       }
 
-      if (
-        !falls &&
-        horizontalDistance < MAX_WATER_HORIZONTAL_DISTANCE
-      ) {
-        for (const [offsetQ, offsetR] of HORIZONTAL_DIRECTIONS) {
-          const neighbor = {
-            q: position.q + offsetQ,
-            r: position.r + offsetR,
-            level: position.level,
-          };
+      if (!falls && horizontalDistance < MAX_WATER_HORIZONTAL_DISTANCE) {
+        for (const direction of HORIZONTAL_HEX_DIRECTIONS) {
+          const neighbor = neighborOf(position, direction);
           if (this.#isWaterFillable(neighbor)) {
             this.#queueWaterFlow(
               neighbor,
@@ -1182,12 +1044,10 @@ export class InfiniteTerrain {
   #leafHasWoodSupport(start: VoxelPosition): boolean {
     type LeafNode = VoxelPosition & Readonly<{ distance: number }>;
     const queue: LeafNode[] = [{ ...start, distance: 0 }];
-    const visited = new Set<string>([
-      `${start.q},${start.r},${start.level}`,
-    ]);
+    const visited = new Set<string>([voxelKey(start.q, start.r, start.level)]);
 
     const enqueue = (position: VoxelPosition, distance: number): void => {
-      const key = `${position.q},${position.r},${position.level}`;
+      const key = voxelKey(position.q, position.r, position.level);
       if (visited.has(key)) {
         return;
       }
@@ -1203,12 +1063,8 @@ export class InfiniteTerrain {
         continue;
       }
 
-      for (const [offsetQ, offsetR] of HORIZONTAL_DIRECTIONS) {
-        const neighbor = {
-          q: node.q + offsetQ,
-          r: node.r + offsetR,
-          level: node.level,
-        };
+      for (const direction of HORIZONTAL_HEX_DIRECTIONS) {
+        const neighbor = neighborOf(node, direction);
         const material = this.materialAt(
           neighbor.q,
           neighbor.r,
@@ -1222,12 +1078,8 @@ export class InfiniteTerrain {
         }
       }
 
-      for (const offsetLevel of [-1, 1] as const) {
-        const neighbor = {
-          q: node.q,
-          r: node.r,
-          level: node.level + offsetLevel,
-        };
+      for (const direction of VERTICAL_DIRECTIONS) {
+        const neighbor = neighborOf(node, direction);
         const material = this.materialAt(
           neighbor.q,
           neighbor.r,

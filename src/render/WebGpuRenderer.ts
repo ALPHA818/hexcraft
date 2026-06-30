@@ -3,15 +3,8 @@ import type { Atmosphere } from "../environment/Atmosphere.ts";
 import type { FirstPersonCamera } from "../input/FirstPersonCamera.ts";
 import { DEVICE_PROFILE } from "../platform/deviceProfile.ts";
 import { createBlockTextureAtlas } from "./blockTextureAtlas.ts";
-import {
-  identity,
-  multiply,
-  perspective,
-} from "../math/mat4.ts";
-import {
-  hexPrismShader,
-  shadowShader,
-} from "./hexPrism.wgsl.ts";
+import { identity, multiply, perspective } from "../math/mat4.ts";
+import { hexPrismShader, shadowShader } from "./hexPrism.wgsl.ts";
 import { lightViewProjection } from "./lighting.ts";
 
 const FLOAT_SIZE = Float32Array.BYTES_PER_ELEMENT;
@@ -40,18 +33,22 @@ export class WebGpuRenderer {
   readonly #shadowBindGroup: GPUBindGroup;
   readonly #uniformBuffer: GPUBuffer;
   readonly #uniformBindGroup: GPUBindGroup;
-  readonly #uniformData = new Float32Array(68);
+  readonly #uniformData = new Float32Array(72);
 
   #depthTexture: GPUTexture | null = null;
   #depthWidth = 0;
   #depthHeight = 0;
   #animationFrame = 0;
   #lastFrameTime = 0;
+  #isRunning = false;
   #animationSeconds = 0;
   #vertexBuffer: GPUBuffer;
   #vertexBufferCapacity: number;
+  #entityVertexBuffer: GPUBuffer;
+  #entityVertexBufferCapacity: number;
   #opaqueVertexCount: number;
   #translucentVertexCount: number;
+  #entityVertexCount = 0;
 
   private constructor(
     canvas: HTMLCanvasElement,
@@ -73,6 +70,15 @@ export class WebGpuRenderer {
       usage: BUFFER_USAGE_VERTEX | BUFFER_USAGE_COPY_DST,
     });
     device.queue.writeBuffer(this.#vertexBuffer, 0, mesh.vertices);
+    this.#entityVertexBufferCapacity = Math.max(
+      FLOAT_SIZE * mesh.floatsPerVertex,
+      4,
+    );
+    this.#entityVertexBuffer = device.createBuffer({
+      label: "Entity vertex buffer",
+      size: this.#entityVertexBufferCapacity,
+      usage: BUFFER_USAGE_VERTEX | BUFFER_USAGE_COPY_DST,
+    });
 
     this.#uniformBuffer = device.createBuffer({
       label: "Hex prism uniforms",
@@ -383,12 +389,21 @@ export class WebGpuRenderer {
     onFrame: (deltaSeconds: number) => void,
     onDeviceLost: (reason: string) => void,
   ): void {
+    this.#isRunning = true;
     void this.#device.lost.then((information) => {
+      if (!this.#isRunning) {
+        return;
+      }
+
       cancelAnimationFrame(this.#animationFrame);
       onDeviceLost(information.message || information.reason);
     });
 
     const renderFrame = (time: number): void => {
+      if (!this.#isRunning) {
+        return;
+      }
+
       const deltaSeconds =
         this.#lastFrameTime === 0 ? 0 : (time - this.#lastFrameTime) / 1000;
       this.#lastFrameTime = time;
@@ -401,6 +416,13 @@ export class WebGpuRenderer {
     };
 
     this.#animationFrame = requestAnimationFrame(renderFrame);
+  }
+
+  stop(): void {
+    this.#isRunning = false;
+    cancelAnimationFrame(this.#animationFrame);
+    this.#animationFrame = 0;
+    this.#lastFrameTime = 0;
   }
 
   updateMesh(mesh: MeshData): void {
@@ -419,19 +441,34 @@ export class WebGpuRenderer {
     this.#translucentVertexCount = mesh.translucentVertexCount ?? 0;
   }
 
+  updateEntityMesh(mesh: MeshData): void {
+    if (mesh.vertices.byteLength > this.#entityVertexBufferCapacity) {
+      this.#entityVertexBuffer.destroy();
+      this.#entityVertexBufferCapacity = mesh.vertices.byteLength;
+      this.#entityVertexBuffer = this.#device.createBuffer({
+        label: "Dynamic entity vertex buffer",
+        size: this.#entityVertexBufferCapacity,
+        usage: BUFFER_USAGE_VERTEX | BUFFER_USAGE_COPY_DST,
+      });
+    }
+
+    if (mesh.vertices.byteLength > 0) {
+      this.#device.queue.writeBuffer(
+        this.#entityVertexBuffer,
+        0,
+        mesh.vertices,
+      );
+    }
+    this.#entityVertexCount = mesh.opaqueVertexCount ?? mesh.vertexCount;
+  }
+
   #resize(): void {
     const scale = Math.min(
       window.devicePixelRatio,
       DEVICE_PROFILE.maxPixelRatio,
     );
-    const width = Math.max(
-      1,
-      Math.floor(this.#canvas.clientWidth * scale),
-    );
-    const height = Math.max(
-      1,
-      Math.floor(this.#canvas.clientHeight * scale),
-    );
+    const width = Math.max(1, Math.floor(this.#canvas.clientWidth * scale));
+    const height = Math.max(1, Math.floor(this.#canvas.clientHeight * scale));
 
     if (this.#canvas.width !== width || this.#canvas.height !== height) {
       this.#canvas.width = width;
@@ -468,10 +505,7 @@ export class WebGpuRenderer {
       0.1,
       48,
     );
-    const modelViewProjection = multiply(
-      projection,
-      multiply(view, model),
-    );
+    const modelViewProjection = multiply(projection, multiply(view, model));
     const environment = atmosphere.state();
     const lightMatrix = lightViewProjection(
       camera.position(),
@@ -495,11 +529,8 @@ export class WebGpuRenderer {
       ],
       64,
     );
-    this.#device.queue.writeBuffer(
-      this.#uniformBuffer,
-      0,
-      this.#uniformData,
-    );
+    this.#uniformData.set(environment.rendererLighting, 68);
+    this.#device.queue.writeBuffer(this.#uniformBuffer, 0, this.#uniformData);
 
     const encoder = this.#device.createCommandEncoder({
       label: "Main render encoder",
@@ -518,6 +549,10 @@ export class WebGpuRenderer {
     shadowPass.setBindGroup(0, this.#shadowBindGroup);
     shadowPass.setVertexBuffer(0, this.#vertexBuffer);
     shadowPass.draw(this.#opaqueVertexCount);
+    if (this.#entityVertexCount > 0) {
+      shadowPass.setVertexBuffer(0, this.#entityVertexBuffer);
+      shadowPass.draw(this.#entityVertexCount);
+    }
     shadowPass.end();
 
     const pass = encoder.beginRenderPass({
@@ -542,8 +577,13 @@ export class WebGpuRenderer {
     pass.setBindGroup(0, this.#uniformBindGroup);
     pass.setVertexBuffer(0, this.#vertexBuffer);
     pass.draw(this.#opaqueVertexCount);
+    if (this.#entityVertexCount > 0) {
+      pass.setVertexBuffer(0, this.#entityVertexBuffer);
+      pass.draw(this.#entityVertexCount);
+    }
     if (this.#translucentVertexCount > 0) {
       pass.setPipeline(this.#transparentPipeline);
+      pass.setVertexBuffer(0, this.#vertexBuffer);
       pass.draw(this.#translucentVertexCount, 1, this.#opaqueVertexCount);
     }
     pass.end();

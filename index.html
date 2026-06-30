@@ -9,19 +9,29 @@
     <meta name="theme-color" content="#08111a" />
     <title>Hexcraft</title>
   </head>
-  <body>
+  <body class="menu-open">
     <div id="sky" aria-hidden="true"></div>
     <div id="stars" aria-hidden="true"></div>
     <div id="moon" aria-hidden="true"></div>
     <div id="clouds" aria-hidden="true"></div>
+    <div
+      id="menu-root"
+      class="menu-root"
+      role="dialog"
+      aria-live="polite"
+    ></div>
     <canvas id="game" aria-label="Hexcraft game viewport"></canvas>
     <canvas id="weather" aria-hidden="true"></canvas>
     <main id="status">
       <h1>Hexcraft</h1>
       <strong id="mode-status">Creative testing mode</strong>
       <p id="message">Starting renderer…</p>
+      <p id="mesh-status" hidden></p>
       <p id="weather-status">Weather loading…</p>
     </main>
+    <section id="survival-hud" class="survival-hud" hidden></section>
+    <aside id="debug-overlay" class="debug-panel" hidden></aside>
+    <section id="death-screen" class="death-screen" hidden></section>
     <div id="crosshair" aria-hidden="true"></div>
     <nav id="hotbar" aria-label="Block hotbar"></nav>
     <div id="mobile-controls" hidden>
@@ -43,22 +53,17 @@
     </div>
     <section id="inventory-panel" hidden>
       <header>
-        <h2>Creative Blocks</h2>
+        <h2>Inventory</h2>
         <span>E to close</span>
       </header>
       <div id="inventory-counts"></div>
-      <article class="recipe">
-        <div>
-          <strong>Wood Planks</strong>
-          <p>1 wood → 4 planks</p>
-        </div>
-        <button id="craft-planks" type="button">Craft</button>
-      </article>
+      <div id="inventory-recipes"></div>
     </section>
     <aside id="controls">
       <strong>Click to play</strong>
       <p>
-        Creative flight · WASD move · Space up · Shift down · Left mine · Right place · E blocks · T weather · N time · P pause
+        Creative flight · WASD move · Space up · Shift down · Left mine · Right
+        place · E blocks · T weather · N time · P pause
       </p>
     </aside>
     <script type="module" src="/src/main.ts"></script>

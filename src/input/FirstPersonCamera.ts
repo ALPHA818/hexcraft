@@ -9,6 +9,13 @@ export type FirstPersonCollisionWorld = Readonly<{
   isFluidAtWorld?: (x: number, y: number, z: number) => boolean;
 }>;
 
+export type FirstPersonCameraState = Readonly<{
+  grounded: boolean;
+  fallDistance: number;
+  sprinting: boolean;
+  inWater: boolean;
+}>;
+
 const WALK_SPEED = 4.5;
 const SPRINT_MULTIPLIER = 1.65;
 const MOUSE_SENSITIVITY = 0.002;
@@ -54,12 +61,17 @@ export class FirstPersonCamera {
   #pitch = -0.18;
   #velocityY = 0;
   #isPointerLocked = false;
+  #acceptsInput = true;
   #onGround = false;
   #jumpWasHeld = false;
   #touchStrafe = 0;
   #touchForward = 0;
   #touchJumpQueued = false;
   #touchVertical = 0;
+  #fallStartY = this.#position[1];
+  #lastFallDistance = 0;
+  #isSprinting = false;
+  #inWater = false;
 
   constructor(
     canvas: HTMLCanvasElement,
@@ -74,8 +86,13 @@ export class FirstPersonCamera {
   }
 
   start(): void {
+    this.#acceptsInput = true;
     this.#canvas.addEventListener("pointerdown", (event) => {
-      if (event.pointerType === "mouse" && !this.#isPointerLocked) {
+      if (
+        this.#acceptsInput &&
+        event.pointerType === "mouse" &&
+        !this.#isPointerLocked
+      ) {
         void this.#canvas.requestPointerLock();
       }
     });
@@ -85,10 +102,7 @@ export class FirstPersonCamera {
 
     document.addEventListener("pointerlockchange", () => {
       this.#isPointerLocked = document.pointerLockElement === this.#canvas;
-      document.body.classList.toggle(
-        "pointer-locked",
-        this.#isPointerLocked,
-      );
+      document.body.classList.toggle("pointer-locked", this.#isPointerLocked);
 
       if (!this.#isPointerLocked) {
         this.#keys.clear();
@@ -96,20 +110,21 @@ export class FirstPersonCamera {
     });
 
     document.addEventListener("mousemove", (event) => {
-      if (!this.#isPointerLocked) {
+      if (!this.#acceptsInput || !this.#isPointerLocked) {
         return;
       }
 
       this.#yaw += event.movementX * MOUSE_SENSITIVITY;
       this.#pitch -= event.movementY * MOUSE_SENSITIVITY;
-      this.#pitch = Math.max(
-        -MAX_PITCH,
-        Math.min(MAX_PITCH, this.#pitch),
-      );
+      this.#pitch = Math.max(-MAX_PITCH, Math.min(MAX_PITCH, this.#pitch));
     });
 
     document.addEventListener("keydown", (event) => {
-      if (!this.#isPointerLocked || !MOVEMENT_KEYS.has(event.code)) {
+      if (
+        !this.#acceptsInput ||
+        !this.#isPointerLocked ||
+        !MOVEMENT_KEYS.has(event.code)
+      ) {
         return;
       }
 
@@ -118,7 +133,9 @@ export class FirstPersonCamera {
     });
 
     document.addEventListener("keyup", (event) => {
-      this.#keys.delete(event.code);
+      if (this.#acceptsInput) {
+        this.#keys.delete(event.code);
+      }
     });
 
     window.addEventListener("blur", () => {
@@ -133,10 +150,23 @@ export class FirstPersonCamera {
     this.#position[2] = z;
     this.#velocityY = 0;
     this.#onGround = true;
+    this.#fallStartY = this.#position[1];
+    this.#lastFallDistance = 0;
+  }
+
+  setPosition(position: readonly [number, number, number]): void {
+    this.#position[0] = position[0];
+    this.#position[1] = position[1];
+    this.#position[2] = position[2];
+    this.#velocityY = 0;
+    this.#onGround = false;
+    this.#fallStartY = this.#position[1];
+    this.#lastFallDistance = 0;
   }
 
   update(deltaSeconds: number): void {
     const delta = Math.min(deltaSeconds, 0.05);
+    const wasOnGround = this.#onGround;
     const forwardX = Math.sin(this.#yaw);
     const forwardZ = -Math.cos(this.#yaw);
     const rightX = Math.cos(this.#yaw);
@@ -149,6 +179,9 @@ export class FirstPersonCamera {
         this.#position[1] - PLAYER_EYE_HEIGHT * 0.55,
         this.#position[2],
       ) ?? false;
+    this.#inWater = inWater;
+    this.#isSprinting = false;
+    this.#lastFallDistance = 0;
 
     if (this.#isPointerLocked) {
       if (this.#keys.has("KeyW")) {
@@ -188,10 +221,10 @@ export class FirstPersonCamera {
         this.#position[0] += (movementX / movementLength) * speed;
         this.#position[2] += (movementZ / movementLength) * speed;
       }
-      this.#position[1] +=
-        Math.max(-1, Math.min(1, verticalMovement)) * speed;
+      this.#position[1] += Math.max(-1, Math.min(1, verticalMovement)) * speed;
       this.#velocityY = 0;
       this.#onGround = false;
+      this.#fallStartY = this.#position[1];
       this.#touchJumpQueued = false;
       return;
     }
@@ -199,9 +232,10 @@ export class FirstPersonCamera {
     if (movementLength > 0) {
       const sprinting =
         this.#keys.has("ShiftLeft") || this.#keys.has("ShiftRight");
+      this.#isSprinting = sprinting && !inWater;
       const speed =
         WALK_SPEED *
-        (sprinting ? SPRINT_MULTIPLIER : 1) *
+        (this.#isSprinting ? SPRINT_MULTIPLIER : 1) *
         (inWater ? WATER_MOVEMENT_MULTIPLIER : 1) *
         delta;
       const stepX = (movementX / movementLength) * speed;
@@ -213,6 +247,7 @@ export class FirstPersonCamera {
     if (jumpHeld && !this.#jumpWasHeld && this.#onGround) {
       this.#velocityY = JUMP_SPEED;
       this.#onGround = false;
+      this.#fallStartY = this.#position[1];
     } else if (jumpHeld && inWater) {
       this.#velocityY = Math.max(this.#velocityY, SWIM_UP_SPEED);
     }
@@ -222,12 +257,12 @@ export class FirstPersonCamera {
     this.#velocityY -=
       GRAVITY * (inWater ? WATER_GRAVITY_MULTIPLIER : 1) * delta;
     if (inWater) {
-      this.#velocityY = Math.max(
-        this.#velocityY,
-        WATER_TERMINAL_FALL_SPEED,
-      );
+      this.#velocityY = Math.max(this.#velocityY, WATER_TERMINAL_FALL_SPEED);
     }
     this.#position[1] += this.#velocityY * delta;
+    if (!this.#onGround && this.#velocityY > 0) {
+      this.#fallStartY = Math.max(this.#fallStartY, this.#position[1]);
+    }
 
     const feet = this.#position[1] - PLAYER_EYE_HEIGHT;
     const ground = this.#world.groundYAt(
@@ -237,11 +272,21 @@ export class FirstPersonCamera {
     );
 
     if (this.#velocityY <= 0 && feet <= ground) {
+      if (!wasOnGround) {
+        this.#lastFallDistance = Math.max(
+          0,
+          this.#fallStartY - (ground + PLAYER_EYE_HEIGHT),
+        );
+      }
       this.#position[1] = ground + PLAYER_EYE_HEIGHT;
       this.#velocityY = 0;
       this.#onGround = true;
+      this.#fallStartY = this.#position[1];
     } else {
       this.#onGround = false;
+      if (wasOnGround) {
+        this.#fallStartY = this.#position[1];
+      }
     }
 
     if (
@@ -259,11 +304,7 @@ export class FirstPersonCamera {
   #moveHorizontal(stepX: number, stepZ: number): void {
     const moveAxis = (nextX: number, nextZ: number): void => {
       const feet = this.#position[1] - PLAYER_EYE_HEIGHT;
-      const ground = this.#world.groundYAt(
-        nextX,
-        nextZ,
-        feet + STEP_HEIGHT,
-      );
+      const ground = this.#world.groundYAt(nextX, nextZ, feet + STEP_HEIGHT);
       const blockedByStep = ground > feet + STEP_HEIGHT;
       const blockedBody =
         this.#world.isSolidAtWorld(nextX, feet + 0.18, nextZ) ||
@@ -289,6 +330,7 @@ export class FirstPersonCamera {
 
   resumeInput(): void {
     if (
+      !this.#acceptsInput ||
       this.#isMobile ||
       document.pointerLockElement === this.#canvas
     ) {
@@ -298,8 +340,51 @@ export class FirstPersonCamera {
     void this.#canvas.requestPointerLock();
   }
 
+  releaseInput(): void {
+    this.#keys.clear();
+    this.#touchStrafe = 0;
+    this.#touchForward = 0;
+    this.#touchVertical = 0;
+    this.#touchJumpQueued = false;
+
+    if (document.pointerLockElement === this.#canvas) {
+      document.exitPointerLock();
+    }
+    document.body.classList.remove("pointer-locked");
+  }
+
+  stopInput(): void {
+    this.#acceptsInput = false;
+    this.releaseInput();
+  }
+
   isInputActive(): boolean {
-    return this.#isMobile || this.#isPointerLocked;
+    return this.#acceptsInput && (this.#isMobile || this.#isPointerLocked);
+  }
+
+  state(): FirstPersonCameraState {
+    return {
+      grounded: this.#onGround,
+      fallDistance: this.#lastFallDistance,
+      sprinting: this.#isSprinting,
+      inWater: this.#inWater,
+    };
+  }
+
+  isGrounded(): boolean {
+    return this.#onGround;
+  }
+
+  fallDistance(): number {
+    return this.#lastFallDistance;
+  }
+
+  isSprinting(): boolean {
+    return this.#isSprinting;
+  }
+
+  isInWater(): boolean {
+    return this.#inWater;
   }
 
   setTouchMovement(strafe: number, forward: number): void {
@@ -310,10 +395,7 @@ export class FirstPersonCamera {
   lookBy(deltaX: number, deltaY: number): void {
     this.#yaw += deltaX * TOUCH_SENSITIVITY;
     this.#pitch -= deltaY * TOUCH_SENSITIVITY;
-    this.#pitch = Math.max(
-      -MAX_PITCH,
-      Math.min(MAX_PITCH, this.#pitch),
-    );
+    this.#pitch = Math.max(-MAX_PITCH, Math.min(MAX_PITCH, this.#pitch));
   }
 
   queueJump(): void {

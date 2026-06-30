@@ -26,15 +26,13 @@ export function shouldUseMobileControls(
       capabilities.userAgent,
     );
   const iPadDesktopMode =
-    capabilities.platform === "MacIntel" &&
-    capabilities.touchPoints > 1;
+    capabilities.platform === "MacIntel" && capabilities.touchPoints > 1;
 
   return mobileOperatingSystem || iPadDesktopMode;
 }
 
 export function detectDeviceProfile(): DeviceProfile {
-  const browserNavigator =
-    typeof navigator === "undefined" ? null : navigator;
+  const browserNavigator = typeof navigator === "undefined" ? null : navigator;
   const userAgentDataMobile = (
     browserNavigator as
       | (Navigator & {

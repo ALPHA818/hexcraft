@@ -1,14 +1,13 @@
 import { describe, expect, it } from "vitest";
 
-import { ACTIVE_GAME_MODE, isCreativeMode } from "./gameMode.ts";
+import { isCreativeMode } from "./gameMode.ts";
 
-describe("active game mode", () => {
-  it("starts in creative mode for testing", () => {
-    expect(ACTIVE_GAME_MODE).toBe("creative");
-    expect(isCreativeMode()).toBe(true);
+describe("game mode helpers", () => {
+  it("detects creative mode", () => {
+    expect(isCreativeMode("creative")).toBe(true);
   });
 
-  it("keeps survival mode available", () => {
+  it("detects survival mode", () => {
     expect(isCreativeMode("survival")).toBe(false);
   });
 });

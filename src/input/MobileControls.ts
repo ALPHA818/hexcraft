@@ -14,6 +14,7 @@ export class MobileControls {
   #lookPointer: number | null = null;
   #lookX = 0;
   #lookY = 0;
+  #isActive = true;
 
   constructor(
     camera: FirstPersonCamera,
@@ -50,7 +51,11 @@ export class MobileControls {
       () => camera.setTouchVertical(-1),
       () => camera.setTouchVertical(0),
     );
-    this.#bindButton("#touch-mine", () => survival.mine());
+    this.#bindHoldButton(
+      "#touch-mine",
+      () => survival.startMining(),
+      () => survival.stopMining(),
+    );
     this.#bindButton("#touch-place", () => survival.place());
     this.#bindButton("#touch-inventory", () => inventory.toggle());
     this.#bindButton("#touch-slot", () => inventory.selectRelative(1));
@@ -64,29 +69,37 @@ export class MobileControls {
     }
 
     button.addEventListener("pointerdown", (event) => {
+      if (!this.#isActive) {
+        return;
+      }
+
       event.preventDefault();
       event.stopPropagation();
       action();
     });
   }
 
-  #bindHoldButton(
-    selector: string,
-    start: () => void,
-    stop: () => void,
-  ): void {
+  #bindHoldButton(selector: string, start: () => void, stop: () => void): void {
     const button = this.#root.querySelector<HTMLButtonElement>(selector);
     if (!button) {
       throw new Error(`Mobile control ${selector} is missing.`);
     }
 
     button.addEventListener("pointerdown", (event) => {
+      if (!this.#isActive) {
+        return;
+      }
+
       event.preventDefault();
       event.stopPropagation();
       button.setPointerCapture(event.pointerId);
       start();
     });
     const release = (event: PointerEvent): void => {
+      if (!this.#isActive) {
+        return;
+      }
+
       event.preventDefault();
       stop();
     };
@@ -106,24 +119,35 @@ export class MobileControls {
       const x = offsetX * scale;
       const y = offsetY * scale;
 
-      this.#knob.style.transform =
-        `translate(calc(-50% + ${x}px), calc(-50% + ${y}px))`;
+      this.#knob.style.transform = `translate(calc(-50% + ${x}px), calc(-50% + ${y}px))`;
       this.#camera.setTouchMovement(x / radius, -y / radius);
     };
 
     this.#joystick.addEventListener("pointerdown", (event) => {
+      if (!this.#isActive) {
+        return;
+      }
+
       event.preventDefault();
       this.#movePointer = event.pointerId;
       this.#joystick.setPointerCapture(event.pointerId);
       update(event);
     });
     this.#joystick.addEventListener("pointermove", (event) => {
+      if (!this.#isActive) {
+        return;
+      }
+
       if (event.pointerId === this.#movePointer) {
         update(event);
       }
     });
 
     const release = (event: PointerEvent): void => {
+      if (!this.#isActive) {
+        return;
+      }
+
       if (event.pointerId !== this.#movePointer) {
         return;
       }
@@ -137,6 +161,10 @@ export class MobileControls {
 
   #bindLook(): void {
     this.#lookZone.addEventListener("pointerdown", (event) => {
+      if (!this.#isActive) {
+        return;
+      }
+
       event.preventDefault();
       this.#lookPointer = event.pointerId;
       this.#lookX = event.clientX;
@@ -144,6 +172,10 @@ export class MobileControls {
       this.#lookZone.setPointerCapture(event.pointerId);
     });
     this.#lookZone.addEventListener("pointermove", (event) => {
+      if (!this.#isActive) {
+        return;
+      }
+
       if (event.pointerId !== this.#lookPointer) {
         return;
       }
@@ -156,11 +188,25 @@ export class MobileControls {
     });
 
     const release = (event: PointerEvent): void => {
+      if (!this.#isActive) {
+        return;
+      }
+
       if (event.pointerId === this.#lookPointer) {
         this.#lookPointer = null;
       }
     };
     this.#lookZone.addEventListener("pointerup", release);
     this.#lookZone.addEventListener("pointercancel", release);
+  }
+
+  destroy(): void {
+    this.#isActive = false;
+    this.#movePointer = null;
+    this.#lookPointer = null;
+    this.#knob.style.transform = "translate(-50%, -50%)";
+    this.#camera.setTouchMovement(0, 0);
+    this.#camera.setTouchVertical(0);
+    this.#root.hidden = true;
   }
 }

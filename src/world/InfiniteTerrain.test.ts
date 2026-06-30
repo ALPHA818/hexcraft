@@ -60,12 +60,25 @@ describe("infinite terrain", () => {
 
   it("provides five hundred mineable blocks below the original world base", () => {
     const column = generateTerrainColumn(0, 0, 42);
+    const mineableUndergroundMaterials = new Set([
+      TerrainMaterial.Stone,
+      TerrainMaterial.DeepStone,
+      TerrainMaterial.CoalOre,
+      TerrainMaterial.CopperOre,
+      TerrainMaterial.IronOre,
+      TerrainMaterial.GoldOre,
+      TerrainMaterial.CrystalOre,
+    ]);
 
     expect(column.height).toBeGreaterThan(TERRAIN_DEPTH_BLOCKS);
-    expect(column.blocks?.[0]).toBe(TerrainMaterial.Stone);
-    expect(column.blocks?.[TERRAIN_DEPTH_BLOCKS - 1]).toBe(
-      TerrainMaterial.Stone,
+    expect(mineableUndergroundMaterials.has(column.blocks?.[0] ?? 0)).toBe(
+      true,
     );
+    expect(
+      mineableUndergroundMaterials.has(
+        column.blocks?.[TERRAIN_DEPTH_BLOCKS - 1] ?? 0,
+      ),
+    ).toBe(true);
     expect(
       TERRAIN_BASE_Y + TERRAIN_DEPTH_BLOCKS * TERRAIN_BLOCK_HEIGHT,
     ).toBeCloseTo(-5.76);
@@ -96,21 +109,17 @@ describe("infinite terrain", () => {
     expect(visible.some((column) => column.river)).toBe(true);
     expect(visible.some((column) => column.mountain)).toBe(true);
     expect(visible.some((column) => (column.caveAirCount ?? 0) > 0)).toBe(true);
-    expect(buildTerrainStream({ q: 0, r: 0 }, 8, 4).update.mesh.translucentVertexCount)
-      .toBeGreaterThan(0);
     expect(
-      generateTerrainColumn(0, 0).blocks?.length,
+      buildTerrainStream({ q: 0, r: 0 }, 8, 4).update.mesh
+        .translucentVertexCount,
     ).toBeGreaterThan(0);
+    expect(generateTerrainColumn(0, 0).blocks?.length).toBeGreaterThan(0);
   });
 
   it("applies edits while building a streamed terrain window", () => {
-    const result = buildTerrainStream(
-      { q: 0, r: 0 },
-      2,
-      0,
-      42,
-      [[0, 0, 30, TerrainMaterial.Planks]],
-    );
+    const result = buildTerrainStream({ q: 0, r: 0 }, 2, 0, 42, [
+      [0, 0, 30, TerrainMaterial.Planks],
+    ]);
     const edited = result.columns.find(
       (column) => column.q === 0 && column.r === 0,
     );
@@ -149,17 +158,12 @@ describe("infinite terrain", () => {
   it("keeps mined and placed blocks after streaming away and back", () => {
     const terrain = new InfiniteTerrain(42, 4, 1);
     terrain.update({ x: 0, z: 0 });
-    terrain.setBlock(
-      { q: 0, r: 0, level: TEST_LEVEL },
-      TerrainMaterial.Planks,
-    );
+    terrain.setBlock({ q: 0, r: 0, level: TEST_LEVEL }, TerrainMaterial.Planks);
 
     terrain.update(axialToWorld(40, 0));
     terrain.update({ x: 0, z: 0 });
 
-    expect(terrain.materialAt(0, 0, TEST_LEVEL)).toBe(
-      TerrainMaterial.Planks,
-    );
+    expect(terrain.materialAt(0, 0, TEST_LEVEL)).toBe(TerrainMaterial.Planks);
   });
 
   it("raycasts a terrain block and returns the adjacent placement cell", () => {
@@ -168,11 +172,9 @@ describe("infinite terrain", () => {
     const column = generateTerrainColumn(0, 0, 42);
     const highest = column.blocks!.findLastIndex(
       (material) =>
-        material !== TerrainMaterial.Air &&
-        material !== TerrainMaterial.Water,
+        material !== TerrainMaterial.Air && material !== TerrainMaterial.Water,
     );
-    const originY =
-      TERRAIN_BASE_Y + (highest + 4) * TERRAIN_BLOCK_HEIGHT;
+    const originY = TERRAIN_BASE_Y + (highest + 4) * TERRAIN_BLOCK_HEIGHT;
     const hit = terrain.raycast([0, originY, 0], [0, -1, 0], 8);
 
     expect(hit?.voxel).toEqual({ q: 0, r: 0, level: highest });
@@ -183,25 +185,14 @@ describe("infinite terrain", () => {
     const terrain = new InfiniteTerrain(42, 2, 0);
     terrain.update({ x: 0, z: 0 });
 
-    terrain.setBlock(
-      { q: 0, r: 0, level: TEST_LEVEL },
-      TerrainMaterial.Wood,
-    );
-    terrain.setBlock(
-      { q: 1, r: 0, level: TEST_LEVEL },
-      TerrainMaterial.Leaves,
-    );
+    terrain.setBlock({ q: 0, r: 0, level: TEST_LEVEL }, TerrainMaterial.Wood);
+    terrain.setBlock({ q: 1, r: 0, level: TEST_LEVEL }, TerrainMaterial.Leaves);
 
     expect(terrain.isSolidAt(1, 0, TEST_LEVEL)).toBe(true);
 
-    terrain.setBlock(
-      { q: 0, r: 0, level: TEST_LEVEL },
-      TerrainMaterial.Air,
-    );
+    terrain.setBlock({ q: 0, r: 0, level: TEST_LEVEL }, TerrainMaterial.Air);
 
-    expect(terrain.materialAt(1, 0, TEST_LEVEL)).toBe(
-      TerrainMaterial.Air,
-    );
+    expect(terrain.materialAt(1, 0, TEST_LEVEL)).toBe(TerrainMaterial.Air);
   });
 
   it("animates local water flow into nearby mined air", async () => {
@@ -216,18 +207,10 @@ describe("infinite terrain", () => {
       { q: 1, r: 0, level: TEST_LEVEL - 1 },
       TerrainMaterial.Stone,
     );
-    terrain.setBlock(
-      { q: 0, r: 0, level: TEST_LEVEL },
-      TerrainMaterial.Water,
-    );
-    terrain.setBlock(
-      { q: 1, r: 0, level: TEST_LEVEL },
-      TerrainMaterial.Air,
-    );
+    terrain.setBlock({ q: 0, r: 0, level: TEST_LEVEL }, TerrainMaterial.Water);
+    terrain.setBlock({ q: 1, r: 0, level: TEST_LEVEL }, TerrainMaterial.Air);
 
-    expect(terrain.materialAt(1, 0, TEST_LEVEL)).toBe(
-      TerrainMaterial.Air,
-    );
+    expect(terrain.materialAt(1, 0, TEST_LEVEL)).toBe(TerrainMaterial.Air);
     await terrain.advanceWaterFlow(WATER_TEST_STEP_SECONDS);
 
     expect(terrain.isSolidAt(1, 0, TEST_LEVEL)).toBe(false);
@@ -250,22 +233,12 @@ describe("infinite terrain", () => {
       { q: 2, r: 0, level: TEST_LEVEL - 1 },
       TerrainMaterial.Stone,
     );
-    terrain.setBlock(
-      { q: 0, r: 0, level: TEST_LEVEL },
-      TerrainMaterial.Water,
-    );
-    terrain.setBlock(
-      { q: 1, r: 0, level: TEST_LEVEL },
-      TerrainMaterial.Air,
-    );
+    terrain.setBlock({ q: 0, r: 0, level: TEST_LEVEL }, TerrainMaterial.Water);
+    terrain.setBlock({ q: 1, r: 0, level: TEST_LEVEL }, TerrainMaterial.Air);
     await terrain.advanceWaterFlow(WATER_TEST_STEP_SECONDS);
 
-    expect(terrain.materialAt(1, 0, TEST_LEVEL)).toBe(
-      TerrainMaterial.Water,
-    );
-    expect(terrain.materialAt(2, 0, TEST_LEVEL)).toBe(
-      TerrainMaterial.Air,
-    );
+    expect(terrain.materialAt(1, 0, TEST_LEVEL)).toBe(TerrainMaterial.Water);
+    expect(terrain.materialAt(2, 0, TEST_LEVEL)).toBe(TerrainMaterial.Air);
   });
 
   it("limits horizontal water flow to three hexes from its source", async () => {
@@ -279,39 +252,20 @@ describe("infinite terrain", () => {
       );
     }
     for (let q = 1; q <= 5; q += 1) {
-      terrain.setBlock(
-        { q, r: 0, level: TEST_LEVEL },
-        TerrainMaterial.Air,
-      );
+      terrain.setBlock({ q, r: 0, level: TEST_LEVEL }, TerrainMaterial.Air);
     }
-    terrain.setBlock(
-      { q: 0, r: 0, level: TEST_LEVEL },
-      TerrainMaterial.Water,
-    );
-    terrain.setBlock(
-      { q: 1, r: 0, level: TEST_LEVEL },
-      TerrainMaterial.Air,
-    );
+    terrain.setBlock({ q: 0, r: 0, level: TEST_LEVEL }, TerrainMaterial.Water);
+    terrain.setBlock({ q: 1, r: 0, level: TEST_LEVEL }, TerrainMaterial.Air);
 
     for (let step = 0; step < 40; step += 1) {
       await terrain.advanceWaterFlow(1);
     }
 
-    expect(terrain.materialAt(1, 0, TEST_LEVEL)).toBe(
-      TerrainMaterial.Water,
-    );
-    expect(terrain.materialAt(2, 0, TEST_LEVEL)).toBe(
-      TerrainMaterial.Water,
-    );
-    expect(terrain.materialAt(3, 0, TEST_LEVEL)).toBe(
-      TerrainMaterial.Water,
-    );
-    expect(terrain.materialAt(4, 0, TEST_LEVEL)).toBe(
-      TerrainMaterial.Air,
-    );
-    expect(terrain.materialAt(5, 0, TEST_LEVEL)).toBe(
-      TerrainMaterial.Air,
-    );
+    expect(terrain.materialAt(1, 0, TEST_LEVEL)).toBe(TerrainMaterial.Water);
+    expect(terrain.materialAt(2, 0, TEST_LEVEL)).toBe(TerrainMaterial.Water);
+    expect(terrain.materialAt(3, 0, TEST_LEVEL)).toBe(TerrainMaterial.Water);
+    expect(terrain.materialAt(4, 0, TEST_LEVEL)).toBe(TerrainMaterial.Air);
+    expect(terrain.materialAt(5, 0, TEST_LEVEL)).toBe(TerrainMaterial.Air);
   });
 
   it("animates water down a mined shaft without spreading sideways", async () => {
@@ -334,28 +288,17 @@ describe("infinite terrain", () => {
       { q: 0, r: 0, level: TEST_LEVEL + 1 },
       TerrainMaterial.Water,
     );
-    terrain.setBlock(
-      { q: 0, r: 0, level: TEST_LEVEL },
-      TerrainMaterial.Air,
-    );
+    terrain.setBlock({ q: 0, r: 0, level: TEST_LEVEL }, TerrainMaterial.Air);
 
-    expect(terrain.materialAt(0, 0, TEST_LEVEL)).toBe(
-      TerrainMaterial.Air,
-    );
+    expect(terrain.materialAt(0, 0, TEST_LEVEL)).toBe(TerrainMaterial.Air);
     await terrain.advanceWaterFlow(WATER_TEST_STEP_SECONDS);
-    expect(terrain.materialAt(0, 0, TEST_LEVEL)).toBe(
-      TerrainMaterial.Water,
-    );
-    expect(terrain.materialAt(0, 0, TEST_LEVEL - 1)).toBe(
-      TerrainMaterial.Air,
-    );
+    expect(terrain.materialAt(0, 0, TEST_LEVEL)).toBe(TerrainMaterial.Water);
+    expect(terrain.materialAt(0, 0, TEST_LEVEL - 1)).toBe(TerrainMaterial.Air);
     await terrain.advanceWaterFlow(WATER_TEST_STEP_SECONDS);
     expect(terrain.materialAt(0, 0, TEST_LEVEL - 1)).toBe(
       TerrainMaterial.Water,
     );
-    expect(terrain.materialAt(0, 0, TEST_LEVEL - 2)).toBe(
-      TerrainMaterial.Air,
-    );
+    expect(terrain.materialAt(0, 0, TEST_LEVEL - 2)).toBe(TerrainMaterial.Air);
     await terrain.advanceWaterFlow(WATER_TEST_STEP_SECONDS);
     expect(terrain.materialAt(0, 0, TEST_LEVEL - 2)).toBe(
       TerrainMaterial.Water,

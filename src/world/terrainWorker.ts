@@ -55,9 +55,8 @@ workerScope.addEventListener(
       columnCache.delete(oldestKey);
     }
 
-    workerScope.postMessage(
-      { requestId: request.requestId, update },
-      [update.mesh.vertices.buffer],
-    );
+    workerScope.postMessage({ requestId: request.requestId, update }, [
+      update.mesh.vertices.buffer,
+    ]);
   },
 );

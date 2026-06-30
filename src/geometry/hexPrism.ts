@@ -69,14 +69,7 @@ export function createHexPrism(radius = 1, height = 1.5): MeshData {
     const bottomCurrent = bottomRing[side]!;
     const bottomNext = bottomRing[next]!;
 
-    pushTriangle(
-      output,
-      topCenter,
-      topNext,
-      topCurrent,
-      [0, 1, 0],
-      topColor,
-    );
+    pushTriangle(output, topCenter, topNext, topCurrent, [0, 1, 0], topColor);
     pushTriangle(
       output,
       bottomCenter,
@@ -87,11 +80,7 @@ export function createHexPrism(radius = 1, height = 1.5): MeshData {
     );
 
     const middleAngle = Math.PI / 3 + side * (Math.PI / 3);
-    const sideNormal: Vec3 = [
-      Math.cos(middleAngle),
-      0,
-      Math.sin(middleAngle),
-    ];
+    const sideNormal: Vec3 = [Math.cos(middleAngle), 0, Math.sin(middleAngle)];
     const sideColor = sideColors[side]!;
 
     pushTriangle(

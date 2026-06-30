@@ -1,9 +1,15 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  advanceWeatherSchedule,
   calculateAtmosphereState,
+  countStormLightningEvents,
+  createWeatherSchedule,
   DAY_NIGHT_CYCLE_SECONDS,
   DAY_OR_NIGHT_SECONDS,
+  cycleWeatherKind,
+  STORM_LIGHTNING_CHANCE_PER_SECOND,
+  WEATHER_SEQUENCE,
   type AtmosphereState,
 } from "./Atmosphere.ts";
 
@@ -18,7 +24,8 @@ describe("atmosphere state contract", () => {
       cloudCover: 0.6,
       daylight: 0.9,
       timeSeconds: 42,
-      weather: "rain",
+      weather: "fog",
+      rendererLighting: [0.8, 0.1, 24, 44],
     };
 
     expect(state.lightDirection[1]).toBeLessThan(0);
@@ -27,10 +34,7 @@ describe("atmosphere state contract", () => {
   });
 
   it("makes daylight brighter than midnight", () => {
-    const noon = calculateAtmosphereState(
-      DAY_NIGHT_CYCLE_SECONDS / 2,
-      "clear",
-    );
+    const noon = calculateAtmosphereState(DAY_NIGHT_CYCLE_SECONDS / 2, "clear");
     const midnight = calculateAtmosphereState(0, "clear");
 
     expect(noon.daylight).toBeGreaterThan(midnight.daylight);
@@ -51,16 +55,80 @@ describe("atmosphere state contract", () => {
     expect(storm.cloudCover).toBeGreaterThan(clear.cloudCover);
   });
 
+  it("supports the expanded weather state list", () => {
+    expect(WEATHER_SEQUENCE).toEqual([
+      "clear",
+      "cloudy",
+      "rain",
+      "storm",
+      "snow",
+      "fog",
+      "sandstorm",
+    ]);
+
+    for (const weather of WEATHER_SEQUENCE) {
+      expect(
+        calculateAtmosphereState(DAY_NIGHT_CYCLE_SECONDS * 0.4, weather)
+          .weather,
+      ).toBe(weather);
+    }
+  });
+
+  it("keeps weather transitions deterministic when seeded", () => {
+    const seed = 12345;
+    let first = createWeatherSchedule(seed, "clear", {
+      allowSandstorm: true,
+    });
+    let second = createWeatherSchedule(seed, "clear", {
+      allowSandstorm: true,
+    });
+
+    for (let step = 0; step < 20; step += 1) {
+      first = advanceWeatherSchedule(first, 45, seed, {
+        allowSandstorm: true,
+      });
+      second = advanceWeatherSchedule(second, 45, seed, {
+        allowSandstorm: true,
+      });
+    }
+
+    expect(second).toEqual(first);
+  });
+
+  it("cycles manual weather and skips sandstorms unless available", () => {
+    expect(cycleWeatherKind("clear")).toBe("cloudy");
+    expect(cycleWeatherKind("fog")).toBe("clear");
+    expect(cycleWeatherKind("fog", { allowSandstorm: true })).toBe("sandstorm");
+    expect(cycleWeatherKind("sandstorm")).toBe("clear");
+  });
+
+  it("keeps disabled weather clear", () => {
+    const schedule = advanceWeatherSchedule(
+      createWeatherSchedule(7, "storm", { enableWeather: false }),
+      999,
+      7,
+      { enableWeather: false, allowSandstorm: true },
+    );
+
+    expect(schedule.weather).toBe("clear");
+  });
+
+  it("creates storm lightning events within the expected probability range", () => {
+    const seconds = 600;
+    const events = countStormLightningEvents(9981, seconds, 4);
+    const expected = seconds * STORM_LIGHTNING_CHANCE_PER_SECOND;
+
+    expect(events).toBeGreaterThanOrEqual(Math.floor(expected * 0.45));
+    expect(events).toBeLessThanOrEqual(Math.ceil(expected * 1.75));
+  });
+
   it("transitions through sunrise, noon, sunset, and night", () => {
     const midnight = calculateAtmosphereState(0, "clear");
     const sunrise = calculateAtmosphereState(
       DAY_NIGHT_CYCLE_SECONDS / 4,
       "clear",
     );
-    const noon = calculateAtmosphereState(
-      DAY_NIGHT_CYCLE_SECONDS / 2,
-      "clear",
-    );
+    const noon = calculateAtmosphereState(DAY_NIGHT_CYCLE_SECONDS / 2, "clear");
     const sunset = calculateAtmosphereState(
       DAY_NIGHT_CYCLE_SECONDS * 0.75,
       "clear",

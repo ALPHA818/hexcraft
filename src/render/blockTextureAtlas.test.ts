@@ -5,6 +5,7 @@ import {
   BLOCK_TEXTURE_ATLAS_HEIGHT,
   BLOCK_TEXTURE_ATLAS_WIDTH,
   BlockTexture,
+  BLOCK_TEXTURE_TILE_COUNT,
   createBlockTextureAtlas,
 } from "./blockTextureAtlas.ts";
 
@@ -16,7 +17,7 @@ describe("block texture atlas", () => {
       return atlas.pixels[(y * BLOCK_TEXTURE_ATLAS_WIDTH + atlasX) * 4 + 3]!;
     };
 
-    expect(atlas.width).toBe(832);
+    expect(atlas.width).toBe(BLOCK_TEXTURE_TILE_COUNT * 64);
     expect(atlas.height).toBe(64);
     expect(atlas.pixels).toHaveLength(
       BLOCK_TEXTURE_ATLAS_WIDTH * BLOCK_TEXTURE_ATLAS_HEIGHT * 4,
@@ -41,8 +42,8 @@ describe("block texture atlas", () => {
   it("keeps UV coordinates inside the selected tile", () => {
     const [minimumU] = atlasUv(BlockTexture.Dirt, 0, 0);
     const [maximumU] = atlasUv(BlockTexture.Dirt, 1, 1);
-    const tileMinimum = BlockTexture.Dirt / 13;
-    const tileMaximum = (BlockTexture.Dirt + 1) / 13;
+    const tileMinimum = BlockTexture.Dirt / BLOCK_TEXTURE_TILE_COUNT;
+    const tileMaximum = (BlockTexture.Dirt + 1) / BLOCK_TEXTURE_TILE_COUNT;
 
     expect(minimumU).toBeGreaterThan(tileMinimum);
     expect(maximumU).toBeLessThan(tileMaximum);

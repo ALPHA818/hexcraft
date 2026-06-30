@@ -1,17 +1,18 @@
+import { directionFromFace } from "./voxelRules.ts";
+
 export type HexPosition = Readonly<{
   q: number;
   r: number;
   z: number;
 }>;
 
-export const HORIZONTAL_DIRECTIONS: readonly HexPosition[] = [
-  { q: 1, r: 0, z: 0 },
-  { q: 1, r: -1, z: 0 },
-  { q: 0, r: -1, z: 0 },
-  { q: -1, r: 0, z: 0 },
-  { q: -1, r: 1, z: 0 },
-  { q: 0, r: 1, z: 0 },
-];
+const LEGACY_HORIZONTAL_FACE_ORDER = [0, 5, 4, 3, 2, 1] as const;
+
+export const HORIZONTAL_DIRECTIONS: readonly HexPosition[] =
+  LEGACY_HORIZONTAL_FACE_ORDER.map((face) => {
+    const direction = directionFromFace(face);
+    return { q: direction.q, r: direction.r, z: 0 };
+  });
 
 export function addHex(a: HexPosition, b: HexPosition): HexPosition {
   return {

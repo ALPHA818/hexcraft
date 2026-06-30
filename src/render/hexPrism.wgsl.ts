@@ -1,3 +1,5 @@
+import { BLOCK_TEXTURE_TILE_COUNT } from "./blockTextureAtlas.ts";
+
 export const hexPrismShader = /* wgsl */ `
 struct Uniforms {
   model_view_projection: mat4x4<f32>,
@@ -8,6 +10,7 @@ struct Uniforms {
   light_color: vec4<f32>,
   fog_color: vec4<f32>,
   environment: vec4<f32>,
+  lighting: vec4<f32>,
 }
 
 @group(0) @binding(0)
@@ -87,20 +90,23 @@ fn calculate_shadow(
 @fragment
 fn fragment_main(input: VertexOutput) -> @location(0) vec4<f32> {
   let ambient = uniforms.environment.x;
-  let weather = uniforms.environment.y;
   let time = uniforms.environment.z;
   let flow_time = time;
   let daylight = uniforms.environment.w;
+  let sunlight = uniforms.lighting.x;
+  let minimum_ambient = uniforms.lighting.y;
+  let fog_start = uniforms.lighting.z;
+  let fog_end = uniforms.lighting.w;
   var normal = normalize(input.world_normal);
-  let tile = floor(input.uv.x * 13.0);
+  let tile = floor(input.uv.x * ${BLOCK_TEXTURE_TILE_COUNT}.0);
   let water = abs(tile - 8.0) < 0.5;
   let leaves = abs(tile - 11.0) < 0.5;
   var sample_uv = input.uv;
 
   if (water) {
-    let tile_start = 8.0 / 13.0;
+    let tile_start = 8.0 / ${BLOCK_TEXTURE_TILE_COUNT}.0;
     let local_uv = vec2<f32>(
-      fract(input.uv.x * 13.0),
+      fract(input.uv.x * ${BLOCK_TEXTURE_TILE_COUNT}.0),
       fract(input.uv.y),
     );
     let water_top = normal.y > 0.7;
@@ -116,7 +122,7 @@ fn fragment_main(input: VertexOutput) -> @location(0) vec4<f32> {
         ) * 0.055
       );
       sample_uv = vec2<f32>(
-        tile_start + flowing_uv.x / 13.0,
+        tile_start + flowing_uv.x / ${BLOCK_TEXTURE_TILE_COUNT}.0,
         flowing_uv.y,
       );
 
@@ -132,7 +138,7 @@ fn fragment_main(input: VertexOutput) -> @location(0) vec4<f32> {
         local_uv.y * 1.8 - flow_time * 0.72,
       ));
       sample_uv = vec2<f32>(
-        tile_start + flowing_uv.x / 13.0,
+        tile_start + flowing_uv.x / ${BLOCK_TEXTURE_TILE_COUNT}.0,
         flowing_uv.y,
       );
     }
@@ -141,7 +147,7 @@ fn fragment_main(input: VertexOutput) -> @location(0) vec4<f32> {
   let direction_to_light = normalize(-uniforms.light_direction.xyz);
   let diffuse = max(dot(normal, direction_to_light), 0.0);
   let shadow = calculate_shadow(input.light_position, normal, direction_to_light);
-  let light = ambient + diffuse * shadow * (0.82 - weather * 0.22);
+  let light = max(minimum_ambient, ambient + diffuse * shadow * sunlight);
   let texel = textureSample(block_atlas, block_sampler, sample_uv);
   if (leaves && texel.a < 0.35) {
     discard;
@@ -166,8 +172,7 @@ fn fragment_main(input: VertexOutput) -> @location(0) vec4<f32> {
 
   let camera_distance =
     distance(input.world_position, uniforms.camera_position.xyz);
-  let fog_start = mix(32.0, 19.0, weather);
-  let fog = smoothstep(fog_start, 47.0, camera_distance);
+  let fog = smoothstep(fog_start, fog_end, camera_distance);
   let alpha = select(1.0, 0.64, water);
   return vec4<f32>(mix(color, uniforms.fog_color.rgb, fog), alpha);
 }
@@ -183,6 +188,7 @@ struct Uniforms {
   light_color: vec4<f32>,
   fog_color: vec4<f32>,
   environment: vec4<f32>,
+  lighting: vec4<f32>,
 }
 
 @group(0) @binding(0)

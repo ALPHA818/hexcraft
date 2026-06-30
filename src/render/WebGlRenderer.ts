@@ -2,16 +2,15 @@ import type { MeshData } from "../geometry/hexPrism.ts";
 import type { Atmosphere } from "../environment/Atmosphere.ts";
 import type { FirstPersonCamera } from "../input/FirstPersonCamera.ts";
 import { DEVICE_PROFILE } from "../platform/deviceProfile.ts";
-import { createBlockTextureAtlas } from "./blockTextureAtlas.ts";
 import {
-  identity,
-  multiply,
-  perspectiveWebGl,
-} from "../math/mat4.ts";
+  BLOCK_TEXTURE_TILE_COUNT,
+  createBlockTextureAtlas,
+} from "./blockTextureAtlas.ts";
+import { identity, multiply, perspectiveWebGl } from "../math/mat4.ts";
 import { lightViewProjection } from "./lighting.ts";
 
 const SHADOW_MAP_SIZE = DEVICE_PROFILE.shadowMapSize;
-const ATLAS_TILE_COUNT = 13;
+const ATLAS_TILE_COUNT = BLOCK_TEXTURE_TILE_COUNT;
 
 const VERTEX_SHADER = `#version 300 es
 precision highp float;
@@ -58,6 +57,7 @@ uniform vec3 camera_position;
 uniform sampler2D block_atlas;
 uniform sampler2D shadow_map;
 uniform vec4 environment;
+uniform vec4 lighting;
 
 out vec4 output_color;
 
@@ -83,10 +83,13 @@ float calculate_shadow(vec3 normal, vec3 direction_to_light) {
 
 void main() {
   float ambient = environment.x;
-  float weather = environment.y;
   float time = environment.z;
   float flow_time = time;
   float daylight = environment.w;
+  float sunlight = lighting.x;
+  float minimum_ambient = lighting.y;
+  float fog_start = lighting.z;
+  float fog_end = lighting.w;
   vec3 normal = normalize(world_normal);
   float tile = floor(texture_uv.x * ${ATLAS_TILE_COUNT}.0);
   bool water = abs(tile - 8.0) < 0.5;
@@ -135,7 +138,7 @@ void main() {
   vec3 direction_to_light = normalize(-light_direction);
   float diffuse = max(dot(normal, direction_to_light), 0.0);
   float shadow = calculate_shadow(normal, direction_to_light);
-  float light = ambient + diffuse * shadow * (0.82 - weather * 0.22);
+  float light = max(minimum_ambient, ambient + diffuse * shadow * sunlight);
   vec4 texel = texture(block_atlas, sample_uv);
   if (leaves && texel.a < 0.35) {
     discard;
@@ -152,8 +155,7 @@ void main() {
   }
 
   float camera_distance = distance(world_position, camera_position);
-  float fog_start = mix(32.0, 19.0, weather);
-  float fog = smoothstep(fog_start, 47.0, camera_distance);
+  float fog = smoothstep(fog_start, fog_end, camera_distance);
   float alpha = water ? 0.64 : 1.0;
   output_color = vec4(mix(color, fog_color, fog), alpha);
 }
@@ -200,11 +202,7 @@ function compileShader(
 
 function createProgram(gl: WebGL2RenderingContext): WebGLProgram {
   const vertexShader = compileShader(gl, gl.VERTEX_SHADER, VERTEX_SHADER);
-  const fragmentShader = compileShader(
-    gl,
-    gl.FRAGMENT_SHADER,
-    FRAGMENT_SHADER,
-  );
+  const fragmentShader = compileShader(gl, gl.FRAGMENT_SHADER, FRAGMENT_SHADER);
   const program = gl.createProgram();
 
   if (!program) {
@@ -281,6 +279,8 @@ export class WebGlRenderer {
   readonly #blockTexture: WebGLTexture;
   readonly #vertexArray: WebGLVertexArrayObject;
   readonly #vertexBuffer: WebGLBuffer;
+  readonly #entityVertexArray: WebGLVertexArrayObject;
+  readonly #entityVertexBuffer: WebGLBuffer;
   readonly #modelViewProjectionLocation: WebGLUniformLocation;
   readonly #modelLocation: WebGLUniformLocation;
   readonly #lightViewProjectionLocation: WebGLUniformLocation;
@@ -288,6 +288,7 @@ export class WebGlRenderer {
   readonly #lightColorLocation: WebGLUniformLocation;
   readonly #fogColorLocation: WebGLUniformLocation;
   readonly #environmentLocation: WebGLUniformLocation;
+  readonly #lightingLocation: WebGLUniformLocation;
   readonly #cameraPositionLocation: WebGLUniformLocation;
   readonly #blockAtlasLocation: WebGLUniformLocation;
   readonly #shadowMapLocation: WebGLUniformLocation;
@@ -295,9 +296,11 @@ export class WebGlRenderer {
 
   #animationFrame = 0;
   #lastFrameTime = 0;
+  #isRunning = false;
   #animationSeconds = 0;
   #opaqueVertexCount: number;
   #translucentVertexCount: number;
+  #entityVertexCount = 0;
 
   private constructor(
     canvas: HTMLCanvasElement,
@@ -330,31 +333,16 @@ export class WebGlRenderer {
       this.#program,
       "camera_position",
     );
-    this.#lightColorLocation = requireUniform(
-      gl,
-      this.#program,
-      "light_color",
-    );
-    this.#fogColorLocation = requireUniform(
-      gl,
-      this.#program,
-      "fog_color",
-    );
+    this.#lightColorLocation = requireUniform(gl, this.#program, "light_color");
+    this.#fogColorLocation = requireUniform(gl, this.#program, "fog_color");
     this.#environmentLocation = requireUniform(
       gl,
       this.#program,
       "environment",
     );
-    this.#blockAtlasLocation = requireUniform(
-      gl,
-      this.#program,
-      "block_atlas",
-    );
-    this.#shadowMapLocation = requireUniform(
-      gl,
-      this.#program,
-      "shadow_map",
-    );
+    this.#lightingLocation = requireUniform(gl, this.#program, "lighting");
+    this.#blockAtlasLocation = requireUniform(gl, this.#program, "block_atlas");
+    this.#shadowMapLocation = requireUniform(gl, this.#program, "shadow_map");
     this.#shadowLightViewProjectionLocation = requireUniform(
       gl,
       this.#shadowProgram,
@@ -366,18 +354,60 @@ export class WebGlRenderer {
 
     const vertexArray = gl.createVertexArray();
     const vertexBuffer = gl.createBuffer();
+    const entityVertexArray = gl.createVertexArray();
+    const entityVertexBuffer = gl.createBuffer();
 
-    if (!vertexArray || !vertexBuffer) {
+    if (
+      !vertexArray ||
+      !vertexBuffer ||
+      !entityVertexArray ||
+      !entityVertexBuffer
+    ) {
       throw new Error("Could not allocate the WebGL prism geometry.");
     }
 
     this.#vertexArray = vertexArray;
     this.#vertexBuffer = vertexBuffer;
+    this.#entityVertexArray = entityVertexArray;
+    this.#entityVertexBuffer = entityVertexBuffer;
     gl.bindVertexArray(vertexArray);
     gl.bindBuffer(gl.ARRAY_BUFFER, vertexBuffer);
     gl.bufferData(gl.ARRAY_BUFFER, mesh.vertices, gl.STATIC_DRAW);
 
     const stride = mesh.floatsPerVertex * Float32Array.BYTES_PER_ELEMENT;
+    gl.enableVertexAttribArray(0);
+    gl.vertexAttribPointer(0, 3, gl.FLOAT, false, stride, 0);
+    gl.enableVertexAttribArray(1);
+    gl.vertexAttribPointer(
+      1,
+      3,
+      gl.FLOAT,
+      false,
+      stride,
+      3 * Float32Array.BYTES_PER_ELEMENT,
+    );
+    gl.enableVertexAttribArray(2);
+    gl.vertexAttribPointer(
+      2,
+      3,
+      gl.FLOAT,
+      false,
+      stride,
+      6 * Float32Array.BYTES_PER_ELEMENT,
+    );
+    gl.enableVertexAttribArray(3);
+    gl.vertexAttribPointer(
+      3,
+      2,
+      gl.FLOAT,
+      false,
+      stride,
+      9 * Float32Array.BYTES_PER_ELEMENT,
+    );
+
+    gl.bindVertexArray(entityVertexArray);
+    gl.bindBuffer(gl.ARRAY_BUFFER, entityVertexBuffer);
+    gl.bufferData(gl.ARRAY_BUFFER, stride, gl.DYNAMIC_DRAW);
     gl.enableVertexAttribArray(0);
     gl.vertexAttribPointer(0, 3, gl.FLOAT, false, stride, 0);
     gl.enableVertexAttribArray(1);
@@ -481,10 +511,7 @@ export class WebGlRenderer {
     gl.frontFace(gl.CCW);
   }
 
-  static create(
-    canvas: HTMLCanvasElement,
-    mesh: MeshData,
-  ): WebGlRenderer {
+  static create(canvas: HTMLCanvasElement, mesh: MeshData): WebGlRenderer {
     const gl = canvas.getContext("webgl2", {
       alpha: true,
       antialias: true,
@@ -505,6 +532,7 @@ export class WebGlRenderer {
     onFrame: (deltaSeconds: number) => void,
     onContextLost: (reason: string) => void,
   ): void {
+    this.#isRunning = true;
     this.#canvas.addEventListener("webglcontextlost", (event) => {
       event.preventDefault();
       cancelAnimationFrame(this.#animationFrame);
@@ -512,6 +540,10 @@ export class WebGlRenderer {
     });
 
     const renderFrame = (time: number): void => {
+      if (!this.#isRunning) {
+        return;
+      }
+
       const deltaSeconds =
         this.#lastFrameTime === 0 ? 0 : (time - this.#lastFrameTime) / 1000;
       this.#lastFrameTime = time;
@@ -526,6 +558,13 @@ export class WebGlRenderer {
     this.#animationFrame = requestAnimationFrame(renderFrame);
   }
 
+  stop(): void {
+    this.#isRunning = false;
+    cancelAnimationFrame(this.#animationFrame);
+    this.#animationFrame = 0;
+    this.#lastFrameTime = 0;
+  }
+
   updateMesh(mesh: MeshData): void {
     const gl = this.#gl;
     gl.bindVertexArray(this.#vertexArray);
@@ -536,19 +575,22 @@ export class WebGlRenderer {
     this.#translucentVertexCount = mesh.translucentVertexCount ?? 0;
   }
 
+  updateEntityMesh(mesh: MeshData): void {
+    const gl = this.#gl;
+    gl.bindVertexArray(this.#entityVertexArray);
+    gl.bindBuffer(gl.ARRAY_BUFFER, this.#entityVertexBuffer);
+    gl.bufferData(gl.ARRAY_BUFFER, mesh.vertices, gl.DYNAMIC_DRAW);
+    gl.bindVertexArray(null);
+    this.#entityVertexCount = mesh.opaqueVertexCount ?? mesh.vertexCount;
+  }
+
   #resize(): void {
     const scale = Math.min(
       window.devicePixelRatio,
       DEVICE_PROFILE.maxPixelRatio,
     );
-    const width = Math.max(
-      1,
-      Math.floor(this.#canvas.clientWidth * scale),
-    );
-    const height = Math.max(
-      1,
-      Math.floor(this.#canvas.clientHeight * scale),
-    );
+    const width = Math.max(1, Math.floor(this.#canvas.clientWidth * scale));
+    const height = Math.max(1, Math.floor(this.#canvas.clientHeight * scale));
 
     if (this.#canvas.width !== width || this.#canvas.height !== height) {
       this.#canvas.width = width;
@@ -569,10 +611,7 @@ export class WebGlRenderer {
       0.1,
       48,
     );
-    const modelViewProjection = multiply(
-      projection,
-      multiply(view, model),
-    );
+    const modelViewProjection = multiply(projection, multiply(view, model));
     const environment = atmosphere.state();
     const lightMatrix = lightViewProjection(
       camera.position(),
@@ -597,6 +636,10 @@ export class WebGlRenderer {
     gl.polygonOffset(2, 4);
     gl.cullFace(gl.FRONT);
     gl.drawArrays(gl.TRIANGLES, 0, this.#opaqueVertexCount);
+    if (this.#entityVertexCount > 0) {
+      gl.bindVertexArray(this.#entityVertexArray);
+      gl.drawArrays(gl.TRIANGLES, 0, this.#entityVertexCount);
+    }
     gl.cullFace(gl.BACK);
     gl.disable(gl.POLYGON_OFFSET_FILL);
 
@@ -619,15 +662,8 @@ export class WebGlRenderer {
       modelViewProjection,
     );
     gl.uniformMatrix4fv(this.#modelLocation, false, model);
-    gl.uniformMatrix4fv(
-      this.#lightViewProjectionLocation,
-      false,
-      lightMatrix,
-    );
-    gl.uniform3fv(
-      this.#lightDirectionLocation,
-      environment.lightDirection,
-    );
+    gl.uniformMatrix4fv(this.#lightViewProjectionLocation, false, lightMatrix);
+    gl.uniform3fv(this.#lightDirectionLocation, environment.lightDirection);
     gl.uniform3fv(this.#lightColorLocation, environment.lightColor);
     gl.uniform3fv(this.#fogColorLocation, environment.fogColor);
     gl.uniform4f(
@@ -637,12 +673,19 @@ export class WebGlRenderer {
       this.#animationSeconds,
       environment.daylight,
     );
+    gl.uniform4fv(this.#lightingLocation, environment.rendererLighting);
     gl.uniform3fv(this.#cameraPositionLocation, camera.position());
     gl.disable(gl.BLEND);
     gl.depthMask(true);
+    gl.bindVertexArray(this.#vertexArray);
     gl.drawArrays(gl.TRIANGLES, 0, this.#opaqueVertexCount);
+    if (this.#entityVertexCount > 0) {
+      gl.bindVertexArray(this.#entityVertexArray);
+      gl.drawArrays(gl.TRIANGLES, 0, this.#entityVertexCount);
+    }
 
     if (this.#translucentVertexCount > 0) {
+      gl.bindVertexArray(this.#vertexArray);
       gl.enable(gl.BLEND);
       gl.depthMask(false);
       gl.drawArrays(
