@@ -45,7 +45,9 @@ export function toolSpeedMultiplier(
   const equippedTool = normalizeBreakingTool(tool);
 
   if (equippedTool.kind === block.preferredTool) {
-    return equippedTool.speedMultiplier;
+    return (
+      equippedTool.speedMultiplier + (equippedTool.preferredBlockBonus ?? 0)
+    );
   }
 
   return equippedTool.kind === "hand" ? 1 : WRONG_TOOL_MULTIPLIER;

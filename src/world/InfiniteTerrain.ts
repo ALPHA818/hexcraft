@@ -11,6 +11,11 @@ import {
   type TerrainChunkMesh,
   type TerrainColumn,
 } from "../geometry/terrainChunk.ts";
+import type { MaterialDefinition } from "../materials/MaterialTypes.ts";
+import {
+  materialVisualsForMaterial,
+  type MaterialVisuals,
+} from "../materials/MaterialVisuals.ts";
 import {
   DEFAULT_WORLD_SEED,
   generateTerrainColumn,
@@ -71,6 +76,7 @@ export type TerrainEdit = readonly [
   r: number,
   level: number,
   material: TerrainMaterial,
+  dynamicMaterialId?: string,
 ];
 
 export type TerrainEditChunk = Readonly<{
@@ -90,6 +96,14 @@ type MutableTerrainEditChunk = {
 export type TerrainBuildResult = Readonly<{
   update: TerrainStreamUpdate;
   columns: readonly TerrainColumn[];
+}>;
+
+export type DynamicMaterialVisualResolver = (
+  materialId: string,
+) => MaterialVisuals | null;
+
+export type DynamicMaterialResolver = Readonly<{
+  getMaterialById: (materialId: string) => MaterialDefinition | null;
 }>;
 
 type WaterFlowNode = Readonly<{
@@ -402,6 +416,7 @@ export function buildTerrainStream(
   seed = DEFAULT_WORLD_SEED,
   edits: readonly TerrainEdit[] = [],
   columnCache?: Map<string, TerrainColumn>,
+  visualForDynamicMaterialId?: DynamicMaterialVisualResolver,
 ): TerrainBuildResult {
   const columns = generateStreamedColumns(
     centerChunk,
@@ -412,9 +427,11 @@ export function buildTerrainStream(
   );
   const editsByColumn = new Map<string, TerrainEdit[]>();
   const minimumMeshLevelByColumn = new Map<string, number>();
+  const dynamicMaterialIdsByVoxel = new Map<string, string>();
 
   for (const edit of edits) {
     const key = `${edit[0]},${edit[1]}`;
+    const dynamicVoxelKey = voxelKey(edit[0], edit[1], edit[2]);
     const columnEdits = editsByColumn.get(key);
     if (columnEdits) {
       columnEdits.push(edit);
@@ -433,7 +450,28 @@ export function buildTerrainStream(
         ),
       );
     }
+
+    if (
+      edit[3] === TerrainMaterial.DynamicMaterial &&
+      typeof edit[4] === "string" &&
+      edit[4].trim() !== ""
+    ) {
+      dynamicMaterialIdsByVoxel.set(dynamicVoxelKey, edit[4]);
+    } else {
+      dynamicMaterialIdsByVoxel.delete(dynamicVoxelKey);
+    }
   }
+
+  const dynamicMaterialVisualAt =
+    visualForDynamicMaterialId && dynamicMaterialIdsByVoxel.size > 0
+      ? (q: number, r: number, level: number): MaterialVisuals | null => {
+          const materialId = dynamicMaterialIdsByVoxel.get(
+            voxelKey(q, r, level),
+          );
+
+          return materialId ? visualForDynamicMaterialId(materialId) : null;
+        }
+      : undefined;
 
   const editedColumns = columns.map((column) => {
     const key = `${column.q},${column.r}`;
@@ -466,7 +504,12 @@ export function buildTerrainStream(
 
   return {
     update: {
-      mesh: buildTerrainChunk(editedColumns),
+      mesh: buildTerrainChunk(
+        editedColumns,
+        TERRAIN_BLOCK_RADIUS,
+        TERRAIN_BLOCK_HEIGHT,
+        { dynamicMaterialVisualAt },
+      ),
       centerChunk,
       loadedChunkCount: (renderDistance * 2 + 1) ** 2,
       seed,
@@ -479,7 +522,9 @@ export class InfiniteTerrain {
   readonly #seed: number;
   readonly #chunkSize: number;
   readonly #renderDistance: number;
+  readonly #materialResolver: DynamicMaterialResolver | null;
   readonly #edits = new Map<string, Map<number, TerrainMaterial>>();
+  readonly #dynamicMaterialIds = new Map<string, string>();
   readonly #columnCache = new Map<string, TerrainColumn>();
 
   #centerChunk: AxialPosition | null = null;
@@ -498,10 +543,12 @@ export class InfiniteTerrain {
     seed = DEFAULT_WORLD_SEED,
     chunkSize = DEFAULT_CHUNK_SIZE,
     renderDistance = DEFAULT_RENDER_DISTANCE,
+    materialResolver: DynamicMaterialResolver | null = null,
   ) {
     this.#seed = seed;
     this.#chunkSize = chunkSize;
     this.#renderDistance = renderDistance;
+    this.#materialResolver = materialResolver;
   }
 
   update(position: WorldPosition): TerrainStreamUpdate | null {
@@ -634,13 +681,14 @@ export class InfiniteTerrain {
   importTerrainEdits(edits: readonly TerrainEdit[], replace = true): void {
     if (replace) {
       this.#edits.clear();
+      this.#dynamicMaterialIds.clear();
       this.#flowingWater.clear();
       this.#queuedWaterFlow.clear();
       this.#waterFlowQueue = [];
       this.#waterFlowElapsed = 0;
     }
 
-    for (const [q, r, level, material] of edits) {
+    for (const [q, r, level, material, dynamicMaterialId] of edits) {
       if (level < 0) {
         continue;
       }
@@ -652,6 +700,11 @@ export class InfiniteTerrain {
         this.#edits.set(key, columnEdits);
       }
       columnEdits.set(level, material);
+      this.#setDynamicMaterialMetadata(
+        { q, r, level },
+        material,
+        dynamicMaterialId,
+      );
       this.#columnCache.delete(key);
     }
   }
@@ -679,6 +732,14 @@ export class InfiniteTerrain {
     const column = this.#loadedColumns.get(`${q},${r}`);
 
     return column !== undefined && column.visible !== false;
+  }
+
+  dynamicMaterialIdAt(position: VoxelPosition): string | null {
+    return (
+      this.#dynamicMaterialIds.get(
+        voxelKey(position.q, position.r, position.level),
+      ) ?? null
+    );
   }
 
   groundYAt(x: number, z: number, maximumY: number): number {
@@ -780,6 +841,7 @@ export class InfiniteTerrain {
   setBlock(
     position: VoxelPosition,
     material: TerrainMaterial,
+    dynamicMaterialId?: string,
   ): TerrainStreamUpdate | null {
     if (position.level < 0) {
       return null;
@@ -790,7 +852,7 @@ export class InfiniteTerrain {
       position.r,
       position.level,
     );
-    this.#setEditedBlock(position, material);
+    this.#setEditedBlock(position, material, dynamicMaterialId);
     this.#applyMaterialConsequences(position, previousMaterial, material);
     return this.rebuild();
   }
@@ -798,6 +860,7 @@ export class InfiniteTerrain {
   setBlockAsync(
     position: VoxelPosition,
     material: TerrainMaterial,
+    dynamicMaterialId?: string,
   ): Promise<TerrainStreamUpdate | null> | null {
     if (position.level < 0 || !this.#centerChunk) {
       return null;
@@ -808,12 +871,16 @@ export class InfiniteTerrain {
       position.r,
       position.level,
     );
-    this.#setEditedBlock(position, material);
+    this.#setEditedBlock(position, material, dynamicMaterialId);
     this.#applyMaterialConsequences(position, previousMaterial, material);
     return this.#requestBackgroundBuild(this.#centerChunk);
   }
 
-  #setEditedBlock(position: VoxelPosition, material: TerrainMaterial): void {
+  #setEditedBlock(
+    position: VoxelPosition,
+    material: TerrainMaterial,
+    dynamicMaterialId?: string,
+  ): void {
     const key = `${position.q},${position.r}`;
     this.#flowingWater.delete(voxelKey(position.q, position.r, position.level));
     let columnEdits = this.#edits.get(key);
@@ -822,7 +889,27 @@ export class InfiniteTerrain {
       this.#edits.set(key, columnEdits);
     }
     columnEdits.set(position.level, material);
+    this.#setDynamicMaterialMetadata(position, material, dynamicMaterialId);
     this.#columnCache.delete(key);
+  }
+
+  #setDynamicMaterialMetadata(
+    position: VoxelPosition,
+    material: TerrainMaterial,
+    dynamicMaterialId: string | undefined,
+  ): void {
+    const key = voxelKey(position.q, position.r, position.level);
+
+    if (
+      material === TerrainMaterial.DynamicMaterial &&
+      typeof dynamicMaterialId === "string" &&
+      dynamicMaterialId.trim() !== ""
+    ) {
+      this.#dynamicMaterialIds.set(key, dynamicMaterialId);
+      return;
+    }
+
+    this.#dynamicMaterialIds.delete(key);
   }
 
   #setFlowingWaterBlock(
@@ -1104,6 +1191,8 @@ export class InfiniteTerrain {
       this.#renderDistance,
       this.#seed,
       this.#serializedEdits(),
+      this.#columnCache,
+      (materialId) => this.#visualForDynamicMaterialId(materialId),
     );
     this.#loadedColumns.clear();
     for (const column of result.columns) {
@@ -1119,7 +1208,15 @@ export class InfiniteTerrain {
       const q = Number(qText);
       const r = Number(rText);
       for (const [level, material] of columnEdits) {
-        edits.push([q, r, level, material]);
+        const dynamicMaterialId = this.#dynamicMaterialIds.get(
+          voxelKey(q, r, level),
+        );
+
+        edits.push(
+          material === TerrainMaterial.DynamicMaterial && dynamicMaterialId
+            ? [q, r, level, material, dynamicMaterialId]
+            : [q, r, level, material],
+        );
       }
     }
     return edits;
@@ -1187,11 +1284,39 @@ export class InfiniteTerrain {
         renderDistance: this.#renderDistance,
         seed: this.#seed,
         edits: this.#serializedEdits(),
+        dynamicMaterialVisuals: this.#dynamicMaterialVisualRecord(),
       });
     }).finally(() => {
       if (backgroundBuildId === this.#backgroundBuildId) {
         this.#backgroundBuildPending = false;
       }
     });
+  }
+
+  #visualForDynamicMaterialId(materialId: string): MaterialVisuals | null {
+    const material = this.#materialResolver?.getMaterialById(materialId);
+
+    return material ? materialVisualsForMaterial(material) : null;
+  }
+
+  #dynamicMaterialVisualRecord():
+    Readonly<Record<string, MaterialVisuals>> | undefined {
+    if (!this.#materialResolver || this.#dynamicMaterialIds.size === 0) {
+      return undefined;
+    }
+
+    const visualsByMaterialId: Record<string, MaterialVisuals> = {};
+
+    for (const materialId of new Set(this.#dynamicMaterialIds.values())) {
+      const visual = this.#visualForDynamicMaterialId(materialId);
+
+      if (visual) {
+        visualsByMaterialId[materialId] = visual;
+      }
+    }
+
+    return Object.keys(visualsByMaterialId).length > 0
+      ? visualsByMaterialId
+      : undefined;
   }
 }

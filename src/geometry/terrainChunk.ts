@@ -1,4 +1,8 @@
 import { FLOATS_PER_VERTEX, type MeshData } from "./hexPrism.ts";
+import {
+  hexColorToRgb,
+  type MaterialVisuals,
+} from "../materials/MaterialVisuals.ts";
 import { atlasUv, BlockTexture } from "../render/blockTextureAtlas.ts";
 import {
   isBlockCollisionSolid,
@@ -15,6 +19,14 @@ import {
 type Vec3 = readonly [number, number, number];
 type Color = readonly [number, number, number];
 type Vec2 = readonly [number, number];
+
+export type TerrainChunkBuildOptions = Readonly<{
+  dynamicMaterialVisualAt?: (
+    q: number,
+    r: number,
+    level: number,
+  ) => MaterialVisuals | null;
+}>;
 
 export const enum TerrainMaterial {
   Air = 0,
@@ -40,6 +52,7 @@ export const enum TerrainMaterial {
   GoldOre = 20,
   CrystalOre = 21,
   Torch = 22,
+  DynamicMaterial = 23,
 }
 
 export function isFluidMaterial(material: TerrainMaterial): boolean {
@@ -245,6 +258,8 @@ function textureFor(
       return BlockTexture.GoldOre;
     case TerrainMaterial.CrystalOre:
       return BlockTexture.CrystalOre;
+    case TerrainMaterial.DynamicMaterial:
+      return BlockTexture.DynamicMaterial;
     case TerrainMaterial.Torch:
       return BlockTexture.Torch;
     case TerrainMaterial.Cactus:
@@ -287,10 +302,35 @@ function faceIsExposed(
   );
 }
 
+function mixColor(first: Color, second: Color, amount: number): Color {
+  const clampedAmount = Math.max(0, Math.min(1, amount));
+
+  return [
+    first[0] * (1 - clampedAmount) + second[0] * clampedAmount,
+    first[1] * (1 - clampedAmount) + second[1] * clampedAmount,
+    first[2] * (1 - clampedAmount) + second[2] * clampedAmount,
+  ];
+}
+
+function dynamicMaterialTint(
+  visual: MaterialVisuals | null | undefined,
+): Color | null {
+  if (!visual) {
+    return null;
+  }
+
+  const base = hexColorToRgb(visual.baseColor);
+  const accent = hexColorToRgb(visual.accentColor);
+  const color = mixColor(base, accent, 0.18 + visual.emissiveStrength * 0.1);
+
+  return mixColor(color, [1, 1, 1], visual.metallic * 0.08);
+}
+
 export function buildTerrainChunk(
   columns: readonly TerrainColumn[],
   blockRadius = TERRAIN_BLOCK_RADIUS,
   blockHeight = TERRAIN_BLOCK_HEIGHT,
+  options: TerrainChunkBuildOptions = {},
 ): TerrainChunkMesh {
   const opaqueOutput: number[] = [];
   const translucentOutput: number[] = [];
@@ -404,7 +444,14 @@ export function buildTerrainChunk(
       const color =
         material === TerrainMaterial.Water
           ? tint([0.82, 0.94, 1], heightVariation * Math.max(0.68, localLight))
-          : tint([1, 1, 1], heightVariation * localLight);
+          : tint(
+              dynamicMaterialTint(
+                material === TerrainMaterial.DynamicMaterial
+                  ? options.dynamicMaterialVisualAt?.(column.q, column.r, level)
+                  : null,
+              ) ?? [1, 1, 1],
+              heightVariation * localLight,
+            );
 
       for (let side = 0; side < 6; side += 1) {
         const angle = -Math.PI / 6 + side * (Math.PI / 3);

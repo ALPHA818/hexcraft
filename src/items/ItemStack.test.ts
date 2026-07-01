@@ -1,10 +1,15 @@
 import { describe, expect, it } from "vitest";
 
 import { TerrainMaterial } from "../geometry/terrainChunk.ts";
+import { combineMaterials } from "../materials/MaterialCombiner.ts";
+import { MaterialRegistry } from "../materials/MaterialRegistry.ts";
 import {
   blockItemIdForMaterial,
   equippedToolForItem,
+  isGeneratedMaterialItemId,
+  itemIdForMaterial,
   itemDefinitionFor,
+  materialIdFromItemId,
   placeableMaterialForItem,
 } from "./ItemRegistry.ts";
 import {
@@ -13,6 +18,13 @@ import {
   normalizeItemStack,
   serializeItemStack,
 } from "./ItemStack.ts";
+
+function materialRegistry(): MaterialRegistry {
+  const registry = new MaterialRegistry();
+
+  registry.registerBaseMaterials();
+  return registry;
+}
 
 describe("item stacks", () => {
   it("creates block and tool stacks", () => {
@@ -61,5 +73,61 @@ describe("item stacks", () => {
       "Raw Iron",
     );
     expect(placeableMaterialForItem("material:crystal")).toBeNull();
+  });
+
+  it("creates base element material item stacks with registry lookup", () => {
+    const registry = materialRegistry();
+    const itemId = itemIdForMaterial("element:iron");
+    const stack = createItemStack(itemId, 5, registry);
+
+    expect(isGeneratedMaterialItemId(itemId)).toBe(true);
+    expect(materialIdFromItemId(itemId)).toBe("element:iron");
+    expect(stack).toEqual({ itemId, count: 5 });
+    expect(itemDefinitionFor(itemId, registry)).toMatchObject({
+      kind: "generated_material",
+      displayName: "Iron",
+      shortName: "Iron",
+      maxStackSize: 64,
+      placeable: false,
+    });
+  });
+
+  it("creates generated material item stacks that cap at 64", () => {
+    const registry = materialRegistry();
+    const iron = registry.getMaterialById("element:iron");
+    const carbon = registry.getMaterialById("element:carbon");
+
+    expect(iron).not.toBeNull();
+    expect(carbon).not.toBeNull();
+    if (!iron || !carbon) {
+      return;
+    }
+
+    const result = combineMaterials(iron, carbon, registry);
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) {
+      return;
+    }
+
+    const itemId = itemIdForMaterial(result.material.id);
+    const stack = createItemStack(itemId, 99, registry);
+
+    expect(stack.count).toBe(64);
+    expect(itemDefinitionFor(itemId, registry)?.displayName).toBe(
+      result.material.name,
+    );
+    expect(normalizeItemStack(serializeItemStack(stack), registry)).toEqual(
+      stack,
+    );
+  });
+
+  it("handles unknown generated material item ids cleanly", () => {
+    const registry = materialRegistry();
+    const itemId = itemIdForMaterial("generated:missing");
+
+    expect(itemDefinitionFor(itemId, registry)).toBeNull();
+    expect(normalizeItemStack({ itemId, count: 1 }, registry)).toBeNull();
+    expect(materialIdFromItemId("material:coal")).toBeNull();
   });
 });

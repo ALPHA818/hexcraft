@@ -21,7 +21,8 @@ export type BlockId =
   | "cactus"
   | "flower"
   | "mushroom"
-  | "torch";
+  | "torch"
+  | "dynamic_material";
 
 export type PreferredTool =
   "hand" | "shovel" | "pickaxe" | "axe" | "shears" | "bucket";
@@ -78,6 +79,7 @@ export const MATERIAL_NUMERIC_IDS = {
   GoldOre: 20,
   CrystalOre: 21,
   Torch: 22,
+  DynamicMaterial: 23,
 } as const;
 
 function sameTexture(name: string): BlockTextures {
@@ -424,6 +426,20 @@ export const BLOCK_DEFINITIONS = [
     drops: singleDrop(MATERIAL_NUMERIC_IDS.Torch),
     textures: sameTexture("torch"),
     lightEmission: 14,
+  },
+  {
+    id: "dynamic_material",
+    numericId: MATERIAL_NUMERIC_IDS.DynamicMaterial,
+    displayName: "Dynamic Material",
+    solid: true,
+    opaque: true,
+    fluid: false,
+    breakable: true,
+    placeable: true,
+    hardness: 1.4,
+    preferredTool: "pickaxe",
+    drops: [],
+    textures: sameTexture("dynamic_material"),
   },
 ] as const satisfies readonly BlockDefinition[];
 

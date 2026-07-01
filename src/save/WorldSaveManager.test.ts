@@ -5,19 +5,49 @@ import {
   TERRAIN_DEPTH_BLOCKS,
   TerrainMaterial,
 } from "../geometry/terrainChunk.ts";
+import { DEFAULT_MATERIAL_CONFIG } from "../materials/MaterialConfig.ts";
+import { BASE_ELEMENT_COUNT } from "../materials/BaseElements.ts";
+import { combineMaterials } from "../materials/MaterialCombiner.ts";
+import { MaterialRegistry } from "../materials/MaterialRegistry.ts";
+import type { MaterialDefinition } from "../materials/MaterialTypes.ts";
 import {
   generateTerrainColumn,
   InfiniteTerrain,
 } from "../world/InfiniteTerrain.ts";
 import { MemorySaveDatabase } from "./SaveDatabase.ts";
 import {
+  BASIC_STARTING_ELEMENT_IDS,
   CURRENT_SAVE_VERSION,
+  createStartingMaterialCodex,
+  materialRegistryFromSerializedCodex,
+  serializeMaterialCodex,
   type SerializedInventory,
+  type WorldRuntimeStateSave,
 } from "./WorldSaveTypes.ts";
 import { migrateWorldSaveData, WorldSaveManager } from "./WorldSaveManager.ts";
 
 function createManager(): WorldSaveManager {
   return new WorldSaveManager(new MemorySaveDatabase());
+}
+
+function materialRegistry(): MaterialRegistry {
+  const registry = new MaterialRegistry();
+
+  registry.registerBaseMaterials();
+  return registry;
+}
+
+function materialOrThrow(
+  registry: MaterialRegistry,
+  id: string,
+): MaterialDefinition {
+  const material = registry.getMaterialById(id);
+
+  if (!material) {
+    throw new Error(`Missing test material ${id}`);
+  }
+
+  return material;
 }
 
 describe("world save manager", () => {
@@ -39,6 +69,97 @@ describe("world save manager", () => {
       updatedAt: 1000,
     });
     expect(save.metadata.id).not.toHaveLength(0);
+  });
+
+  it("new world gets material codex defaults", async () => {
+    const save = await createManager().createWorld(
+      getDefaultGameSettings(),
+      1000,
+    );
+
+    expect(save.runtime.materialCodex.discoveredBaseMaterialIds).toHaveLength(
+      BASE_ELEMENT_COUNT,
+    );
+    expect(save.runtime.materialCodex.generatedMaterials).toEqual([]);
+    expect(save.runtime.materialCodex.recipes).toEqual([]);
+  });
+
+  it("creates starting material codex with all base elements", () => {
+    const codex = createStartingMaterialCodex(getDefaultGameSettings(), {
+      ...DEFAULT_MATERIAL_CONFIG,
+      startingElementMode: "all",
+    });
+
+    expect(codex.discoveredBaseMaterialIds).toHaveLength(BASE_ELEMENT_COUNT);
+    expect(codex.generatedMaterials).toEqual([]);
+    expect(codex.recipes).toEqual([]);
+  });
+
+  it("creates starting material codex with basic starter elements", () => {
+    const codex = createStartingMaterialCodex(getDefaultGameSettings(), {
+      ...DEFAULT_MATERIAL_CONFIG,
+      startingElementMode: "basic",
+    });
+
+    expect(codex.discoveredBaseMaterialIds).toEqual(
+      [...BASIC_STARTING_ELEMENT_IDS].sort(),
+    );
+    expect(codex.discoveredBaseMaterialIds.length).toBeLessThan(
+      BASE_ELEMENT_COUNT,
+    );
+  });
+
+  it("creates starting material codex with creativeAll mode", () => {
+    const config = {
+      ...DEFAULT_MATERIAL_CONFIG,
+      startingElementMode: "creativeAll" as const,
+    };
+    const creative = createStartingMaterialCodex(
+      { ...getDefaultGameSettings(), gameMode: "creative" },
+      config,
+    );
+    const survival = createStartingMaterialCodex(
+      { ...getDefaultGameSettings(), gameMode: "survival" },
+      config,
+    );
+
+    expect(creative.discoveredBaseMaterialIds).toHaveLength(BASE_ELEMENT_COUNT);
+    expect(survival.discoveredBaseMaterialIds).toEqual(
+      [...BASIC_STARTING_ELEMENT_IDS].sort(),
+    );
+  });
+
+  it("new world uses configured starting material mode", async () => {
+    const manager = new WorldSaveManager(new MemorySaveDatabase(), {
+      ...DEFAULT_MATERIAL_CONFIG,
+      startingElementMode: "basic",
+    });
+    const save = await manager.createWorld(getDefaultGameSettings(), 1000);
+
+    expect(save.runtime.materialCodex.discoveredBaseMaterialIds).toEqual(
+      [...BASIC_STARTING_ELEMENT_IDS].sort(),
+    );
+  });
+
+  it("old save without materialCodex loads safely", async () => {
+    const database = new MemorySaveDatabase();
+    const manager = new WorldSaveManager(database);
+    const created = await manager.createWorld(getDefaultGameSettings(), 1000);
+
+    await database.putWorldRuntimeState({
+      worldId: created.metadata.id,
+      player: { position: [1, 2, 3] },
+      inventory: { selectedIndex: 0, items: [] },
+      gameTime: created.runtime.gameTime,
+    } as unknown as WorldRuntimeStateSave);
+
+    const loaded = await manager.loadWorld(created.metadata.id);
+
+    expect(loaded?.runtime.player.position).toEqual([1, 2, 3]);
+    expect(
+      loaded?.runtime.materialCodex.discoveredBaseMaterialIds,
+    ).toHaveLength(BASE_ELEMENT_COUNT);
+    expect(loaded?.runtime.materialCodex.generatedMaterials).toEqual([]);
   });
 
   it("saves and loads terrain edits grouped by chunk", async () => {
@@ -116,6 +237,39 @@ describe("world save manager", () => {
     );
   });
 
+  it("saves and loads dynamic material block metadata", async () => {
+    const manager = createManager();
+    const created = await manager.createWorld(getDefaultGameSettings(), 1000);
+    const terrain = new InfiniteTerrain(created.metadata.seed, 4, 1);
+    const position = { q: 0, r: 0, level: TERRAIN_DEPTH_BLOCKS + 16 };
+
+    terrain.update({ x: 0, z: 0 });
+    terrain.setBlock(
+      position,
+      TerrainMaterial.DynamicMaterial,
+      "generated:saved-block",
+    );
+
+    await manager.saveWorld({
+      metadata: created.metadata,
+      player: { position: null },
+      inventory: { selectedIndex: 0, items: [] },
+      terrainEditChunks: terrain.exportTerrainEditChunks(),
+    });
+
+    const loaded = await manager.loadWorld(created.metadata.id);
+    const regenerated = new InfiniteTerrain(created.metadata.seed, 4, 1);
+
+    regenerated.importTerrainEditChunks(loaded?.terrainEditChunks ?? []);
+
+    expect(regenerated.materialAt(position.q, position.r, position.level)).toBe(
+      TerrainMaterial.DynamicMaterial,
+    );
+    expect(regenerated.dynamicMaterialIdAt(position)).toBe(
+      "generated:saved-block",
+    );
+  });
+
   it("serializes player position and inventory", async () => {
     const manager = createManager();
     const created = await manager.createWorld(getDefaultGameSettings(), 1000);
@@ -145,6 +299,119 @@ describe("world save manager", () => {
       dayNumber: 9,
       paused: true,
     });
+  });
+
+  it("generated material persists after save and load", async () => {
+    const manager = createManager();
+    const created = await manager.createWorld(getDefaultGameSettings(), 1000);
+    const registry = materialRegistry();
+    const copper = materialOrThrow(registry, "element:copper");
+    const tin = materialOrThrow(registry, "element:tin");
+    const result = combineMaterials(copper, tin, registry);
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) {
+      return;
+    }
+
+    await manager.saveWorld({
+      metadata: created.metadata,
+      player: { position: null },
+      inventory: { selectedIndex: 0, items: [] },
+      materialCodex: serializeMaterialCodex(registry),
+      terrainEditChunks: [],
+    });
+
+    const loaded = await manager.loadWorld(created.metadata.id);
+    const loadedRegistry = materialRegistryFromSerializedCodex(
+      loaded?.runtime.materialCodex,
+    );
+
+    expect(loadedRegistry.getMaterialById(result.material.id)).toMatchObject({
+      id: result.material.id,
+      name: result.material.name,
+      parents: result.material.parents,
+    });
+  });
+
+  it("recipe history persists after save and load", async () => {
+    const manager = createManager();
+    const created = await manager.createWorld(getDefaultGameSettings(), 1000);
+    const registry = materialRegistry();
+    const iron = materialOrThrow(registry, "element:iron");
+    const carbon = materialOrThrow(registry, "element:carbon");
+    const result = combineMaterials(iron, carbon, registry);
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) {
+      return;
+    }
+
+    await manager.saveWorld({
+      metadata: created.metadata,
+      player: { position: null },
+      inventory: { selectedIndex: 0, items: [] },
+      materialCodex: serializeMaterialCodex(registry),
+      terrainEditChunks: [],
+    });
+
+    const loaded = await manager.loadWorld(created.metadata.id);
+    const loadedRegistry = materialRegistryFromSerializedCodex(
+      loaded?.runtime.materialCodex,
+    );
+
+    expect(loaded?.runtime.materialCodex.recipes).toEqual([
+      expect.objectContaining({
+        recipeKey: result.recipeKey,
+        resultMaterialId: result.material.id,
+      }),
+    ]);
+    expect(loadedRegistry.getRecipeResult(iron.id, carbon.id)?.id).toBe(
+      result.material.id,
+    );
+  });
+
+  it("duplicate generated material is not created after reload", async () => {
+    const manager = createManager();
+    const created = await manager.createWorld(getDefaultGameSettings(), 1000);
+    const registry = materialRegistry();
+    const iron = materialOrThrow(registry, "element:iron");
+    const carbon = materialOrThrow(registry, "element:carbon");
+    const result = combineMaterials(iron, carbon, registry);
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) {
+      return;
+    }
+
+    await manager.saveWorld({
+      metadata: created.metadata,
+      player: { position: null },
+      inventory: { selectedIndex: 0, items: [] },
+      materialCodex: serializeMaterialCodex(registry),
+      terrainEditChunks: [],
+    });
+
+    const loaded = await manager.loadWorld(created.metadata.id);
+    const loadedRegistry = materialRegistryFromSerializedCodex(
+      loaded?.runtime.materialCodex,
+    );
+    const loadedIron = materialOrThrow(loadedRegistry, iron.id);
+    const loadedCarbon = materialOrThrow(loadedRegistry, carbon.id);
+    const generatedBefore = loadedRegistry
+      .allMaterials()
+      .filter((material) => material.generation > 0);
+    const repeated = combineMaterials(loadedCarbon, loadedIron, loadedRegistry);
+    const generatedAfter = loadedRegistry
+      .allMaterials()
+      .filter((material) => material.generation > 0);
+
+    expect(repeated.ok).toBe(true);
+    if (repeated.ok) {
+      expect(repeated.discovered).toBe(false);
+      expect(repeated.material.id).toBe(result.material.id);
+    }
+    expect(generatedAfter).toHaveLength(generatedBefore.length);
   });
 
   it("supports multiple worlds, renaming, and deleting", async () => {

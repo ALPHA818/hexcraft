@@ -23,10 +23,15 @@ import {
   PLAYER_EYE_HEIGHT,
 } from "./input/FirstPersonCamera.ts";
 import { MobileControls } from "./input/MobileControls.ts";
+import type { MaterialRegistry } from "./materials/MaterialRegistry.ts";
+import type { MaterialResearchState } from "./materials/MaterialResearch.ts";
+import { PerformanceMonitor } from "./performance/PerformanceMonitor.ts";
 import { WebGlRenderer } from "./render/WebGlRenderer.ts";
 import { WebGpuRenderer } from "./render/WebGpuRenderer.ts";
 import { WorldSaveManager } from "./save/WorldSaveManager.ts";
 import {
+  materialRegistryFromSerializedCodex,
+  serializeMaterialCodex,
   settingsFromMetadata,
   type LoadedWorldSave,
   type SerializedInventory,
@@ -35,6 +40,7 @@ import {
 import { DeathScreen } from "./ui/DeathScreen.ts";
 import { DebugOverlay } from "./ui/DebugOverlay.ts";
 import { MainMenu } from "./ui/MainMenu.ts";
+import { MaterialCodexPanel } from "./ui/MaterialCodexPanel.ts";
 import { SettingsMenu } from "./ui/SettingsMenu.ts";
 import { SurvivalHud } from "./ui/SurvivalHud.ts";
 import { applyUiStateToBodyClass } from "./ui/uiState.ts";
@@ -59,6 +65,8 @@ type ActiveGame = Readonly<{
   entityManager: EntityManager;
   entityRenderer: EntityRenderer;
   inventory: Inventory;
+  materialRegistry: MaterialRegistry;
+  materialResearch: MaterialResearchState;
   gameTime: GameTime;
   survival: SurvivalController;
   survivalStats: SurvivalStatsController;
@@ -77,6 +85,8 @@ const modeStatus = document.querySelector<HTMLElement>("#mode-status");
 const meshStatus = document.querySelector<HTMLElement>("#mesh-status");
 const survivalHudRoot = document.querySelector<HTMLElement>("#survival-hud");
 const debugOverlayRoot = document.querySelector<HTMLElement>("#debug-overlay");
+const materialCodexRoot =
+  document.querySelector<HTMLElement>("#material-codex");
 const deathScreenRoot = document.querySelector<HTMLElement>("#death-screen");
 const mobileControlsRoot =
   document.querySelector<HTMLElement>("#mobile-controls");
@@ -87,10 +97,11 @@ if (
   !menuRoot ||
   !survivalHudRoot ||
   !debugOverlayRoot ||
+  !materialCodexRoot ||
   !deathScreenRoot
 ) {
   throw new Error(
-    "The game canvas, status message, menu root, debug overlay, death screen, or survival HUD is missing.",
+    "The game canvas, status message, menu root, debug overlay, material codex, death screen, or survival HUD is missing.",
   );
 }
 
@@ -103,7 +114,32 @@ let settingsReturnToPause = false;
 const statusMessage = message;
 const saveManager = new WorldSaveManager();
 const audioManager = new AudioManager();
+const performanceMonitor = new PerformanceMonitor();
 const debugOverlay = new DebugOverlay(debugOverlayRoot);
+const materialCodexPanel = new MaterialCodexPanel(
+  materialCodexRoot,
+  null,
+  (isOpen) => {
+    const game = activeGame;
+
+    if (!game) {
+      return;
+    }
+
+    if (isOpen) {
+      game.camera.releaseInput();
+      return;
+    }
+
+    if (
+      document.body.classList.contains("in-game") &&
+      !document.body.classList.contains("menu-open") &&
+      !document.body.classList.contains("inventory-open")
+    ) {
+      game.camera.resumeInput();
+    }
+  },
+);
 const deathScreen = new DeathScreen(deathScreenRoot);
 
 audioManager.attachUserInteractionListeners(document);
@@ -141,6 +177,24 @@ function formatMeshStats(mesh: TerrainStreamUpdate["mesh"]): string {
     `${opaqueVertexCount.toLocaleString()} opaque verts · ` +
     `${translucentVertexCount.toLocaleString()} transparent verts`
   );
+}
+
+function nowMilliseconds(): number {
+  return globalThis.performance?.now() ?? Date.now();
+}
+
+function recordPerformanceRenderStats(
+  backend: "WebGPU" | "WebGL 2",
+  update: TerrainStreamUpdate,
+): void {
+  performanceMonitor.recordRenderStats({
+    renderBackend: backend,
+    loadedChunks: update.loadedChunkCount,
+    meshFaceCount: update.mesh.emittedFaceCount,
+    meshTriangleCount: update.mesh.emittedTriangleCount,
+    opaqueVertexCount: update.mesh.opaqueVertexCount ?? update.mesh.vertexCount,
+    transparentVertexCount: update.mesh.translucentVertexCount ?? 0,
+  });
 }
 
 function isDesertHeavyArea(
@@ -224,6 +278,35 @@ function toggleDebugOverlay(): void {
   applySettingsToBody(draftSettings);
 }
 
+function isEditableTarget(target: EventTarget | null): boolean {
+  return (
+    target instanceof HTMLInputElement ||
+    target instanceof HTMLTextAreaElement ||
+    target instanceof HTMLSelectElement ||
+    (target instanceof HTMLElement && target.isContentEditable)
+  );
+}
+
+function toggleMaterialCodex(): void {
+  if (!activeGame) {
+    return;
+  }
+
+  if (materialCodexPanel.isOpen()) {
+    materialCodexPanel.hide();
+    return;
+  }
+
+  if (
+    document.body.classList.contains("menu-open") ||
+    document.body.classList.contains("inventory-open")
+  ) {
+    return;
+  }
+
+  materialCodexPanel.show();
+}
+
 async function showMainMenu(messageText = ""): Promise<void> {
   applyUiStateToBodyClass({ screen: "main-menu", inGame: false });
   try {
@@ -291,6 +374,8 @@ function captureGameSavePayload(game: ActiveGame) {
     metadata: game.metadata,
     player: { position: [x, y, z] as const },
     inventory: game.inventory.exportState(),
+    materialCodex: serializeMaterialCodex(game.materialRegistry),
+    materialResearch: game.materialResearch,
     gameTime: game.gameTime.snapshot(),
     terrainEditChunks: game.world.exportTerrainEditChunks(),
   };
@@ -342,6 +427,9 @@ function stopActiveGame(): void {
   activeGame.survivalHud.destroy();
   activeGame.mobileControls?.destroy();
   activeGame.atmosphere.destroy();
+  materialCodexPanel.hide();
+  materialCodexPanel.setRegistry(null);
+  performanceMonitor.reset();
   debugOverlay.clear();
   deathScreen.hide();
   activeGame = null;
@@ -399,20 +487,30 @@ async function startWorld(save: LoadedWorldSave): Promise<void> {
   const sessionId = ++gameSessionId;
 
   try {
+    const materialRegistry = materialRegistryFromSerializedCodex(
+      save.runtime.materialCodex,
+    );
+    const materialResearch = save.runtime.materialResearch;
     const world = new InfiniteTerrain(
       settings.worldSeed,
       settings.chunkSize,
       settings.renderDistance,
+      materialRegistry,
     );
     world.importTerrainEditChunks(save.terrainEditChunks);
 
+    const initialTerrainStart = nowMilliseconds();
     const initialWorld = world.update({ x: initialX, z: initialZ });
+    performanceMonitor.recordTerrainUpdateTime(
+      nowMilliseconds() - initialTerrainStart,
+    );
 
     if (!initialWorld) {
       throw new Error("Could not generate the initial terrain window.");
     }
 
     const { renderer, backend } = await createRenderer(initialWorld.mesh);
+    recordPerformanceRenderStats(backend, initialWorld);
 
     if (sessionId !== gameSessionId) {
       renderer.stop();
@@ -440,11 +538,16 @@ async function startWorld(save: LoadedWorldSave): Promise<void> {
     renderer.updateEntityMesh(
       entityRenderer.buildMesh(entityManager.entities()),
     );
-    const inventory = new Inventory(settings.gameMode, (isOpen) => {
-      if (!isOpen && activeGame?.id === sessionId) {
-        camera.resumeInput();
-      }
-    });
+    materialCodexPanel.setRegistry(materialRegistry);
+    const inventory = new Inventory(
+      settings.gameMode,
+      (isOpen) => {
+        if (!isOpen && activeGame?.id === sessionId) {
+          camera.resumeInput();
+        }
+      },
+      materialRegistry,
+    );
     if (hasSavedInventory(save.runtime.inventory)) {
       inventory.importState(save.runtime.inventory);
     }
@@ -490,7 +593,12 @@ async function startWorld(save: LoadedWorldSave): Promise<void> {
         ...activeGame,
         latestTerrainUpdate: update,
       };
+      const meshUpdateStart = nowMilliseconds();
       renderer.updateMesh(update.mesh);
+      performanceMonitor.recordMeshUpdateTime(
+        nowMilliseconds() - meshUpdateStart,
+      );
+      recordPerformanceRenderStats(backend, update);
       showWorldStatus(update);
     };
     let streamRequestId = 0;
@@ -503,6 +611,9 @@ async function startWorld(save: LoadedWorldSave): Promise<void> {
       settings.gameMode,
       () => void saveActiveGame(),
       audioManager,
+      materialRegistry,
+      () => materialCodexPanel.refresh(),
+      settings.worldSeed,
     );
     const playerStats = new PlayerStats();
     const survivalHud = new SurvivalHud(survivalHudRoot!, settings.gameMode);
@@ -537,6 +648,8 @@ async function startWorld(save: LoadedWorldSave): Promise<void> {
       entityManager,
       entityRenderer,
       inventory,
+      materialRegistry,
+      materialResearch,
       gameTime,
       survival,
       survivalStats,
@@ -557,6 +670,7 @@ async function startWorld(save: LoadedWorldSave): Promise<void> {
         }
 
         const [x, , z] = camera.position();
+        const terrainRequestStart = nowMilliseconds();
         const update = world.requestUpdate({ x, z });
 
         if (update) {
@@ -567,6 +681,9 @@ async function startWorld(save: LoadedWorldSave): Promise<void> {
           }
           void update
             .then((worldUpdate) => {
+              performanceMonitor.recordTerrainUpdateTime(
+                nowMilliseconds() - terrainRequestStart,
+              );
               if (
                 activeGame?.id === sessionId &&
                 requestId === streamRequestId &&
@@ -591,10 +708,14 @@ async function startWorld(save: LoadedWorldSave): Promise<void> {
             });
         }
 
+        const waterUpdateStart = nowMilliseconds();
         const waterUpdate = world.advanceWaterFlow(deltaSeconds);
         if (waterUpdate) {
           void waterUpdate
             .then((worldUpdate) => {
+              performanceMonitor.recordTerrainUpdateTime(
+                nowMilliseconds() - waterUpdateStart,
+              );
               if (activeGame?.id === sessionId && worldUpdate) {
                 applyWorldUpdate(worldUpdate);
               }
@@ -605,16 +726,22 @@ async function startWorld(save: LoadedWorldSave): Promise<void> {
         }
         const cameraState = camera.state();
         const cameraPosition = camera.position();
-        const fps = debugOverlay.recordFrame(deltaSeconds);
+        performanceMonitor.recordFrame(deltaSeconds);
+        debugOverlay.advance(deltaSeconds);
 
         survivalStats.update(deltaSeconds, cameraState);
         survivalHud.update(survivalStats.stats.snapshot());
         survival.update(deltaSeconds);
+        const audioUpdateStart = nowMilliseconds();
         audioManager.updatePlayerSteps(deltaSeconds, {
           position: cameraPosition,
           state: cameraState,
           material: materialUnderPlayer(world, cameraPosition),
         });
+        performanceMonitor.recordAudioUpdateTime(
+          nowMilliseconds() - audioUpdateStart,
+        );
+        const entityUpdateStart = nowMilliseconds();
         entityManager.update(deltaSeconds, {
           terrain: world,
           playerPosition: cameraPosition,
@@ -627,20 +754,19 @@ async function startWorld(save: LoadedWorldSave): Promise<void> {
         renderer.updateEntityMesh(
           entityRenderer.buildMesh(entityManager.entities()),
         );
+        performanceMonitor.recordEntityUpdateTime(
+          nowMilliseconds() - entityUpdateStart,
+        );
 
         if (activeGame?.settings.debugOverlay && debugOverlay.shouldRender()) {
           const axial = worldToAxial(cameraPosition[0], cameraPosition[2]);
-          const latestTerrainUpdate = activeGame.latestTerrainUpdate;
 
           debugOverlay.update({
-            fps,
+            performance: performanceMonitor.snapshot(),
             position: cameraPosition,
             axial,
             level: playerLevel(cameraPosition),
             biome: biomeAt(axial.q, axial.r, settings.worldSeed),
-            loadedChunks: latestTerrainUpdate.loadedChunkCount,
-            meshFaceCount: latestTerrainUpdate.mesh.emittedFaceCount,
-            rendererBackend: activeGame.rendererBackend,
             gameMode: activeGame.settings.gameMode,
           });
         }
@@ -753,11 +879,26 @@ document.addEventListener("keydown", (event) => {
     return;
   }
 
+  if (
+    event.code === "KeyM" &&
+    !event.repeat &&
+    activeGame &&
+    !isEditableTarget(event.target)
+  ) {
+    event.preventDefault();
+    toggleMaterialCodex();
+    return;
+  }
+
   if (event.code !== "Escape" || event.repeat || !activeGame) {
     return;
   }
 
   event.preventDefault();
+  if (materialCodexPanel.isOpen()) {
+    materialCodexPanel.hide();
+    return;
+  }
   pauseGame();
 });
 
@@ -767,7 +908,8 @@ document.addEventListener("pointerlockchange", () => {
     document.pointerLockElement === null &&
     document.body.classList.contains("in-game") &&
     !document.body.classList.contains("menu-open") &&
-    !document.body.classList.contains("inventory-open")
+    !document.body.classList.contains("inventory-open") &&
+    !document.body.classList.contains("material-codex-open")
   ) {
     pauseGame();
   }

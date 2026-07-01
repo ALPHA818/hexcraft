@@ -166,6 +166,62 @@ describe("infinite terrain", () => {
     expect(terrain.materialAt(0, 0, TEST_LEVEL)).toBe(TerrainMaterial.Planks);
   });
 
+  it("stores dynamic material metadata for placed dynamic blocks", () => {
+    const terrain = new InfiniteTerrain(42, 4, 1);
+    const position = { q: 0, r: 0, level: TEST_LEVEL };
+
+    terrain.update({ x: 0, z: 0 });
+    terrain.setBlock(
+      position,
+      TerrainMaterial.DynamicMaterial,
+      "generated:test-material",
+    );
+
+    expect(terrain.materialAt(0, 0, TEST_LEVEL)).toBe(
+      TerrainMaterial.DynamicMaterial,
+    );
+    expect(terrain.dynamicMaterialIdAt(position)).toBe(
+      "generated:test-material",
+    );
+
+    terrain.setBlock(position, TerrainMaterial.Air);
+
+    expect(terrain.dynamicMaterialIdAt(position)).toBeNull();
+  });
+
+  it("preserves dynamic material metadata through terrain edit chunks", () => {
+    const source = new InfiniteTerrain(42, 4, 1);
+    const target = new InfiniteTerrain(42, 4, 1);
+    const position = { q: 0, r: 0, level: TEST_LEVEL };
+
+    source.update({ x: 0, z: 0 });
+    source.setBlock(
+      position,
+      TerrainMaterial.DynamicMaterial,
+      "generated:persisted",
+    );
+    target.importTerrainEditChunks(source.exportTerrainEditChunks());
+
+    expect(target.materialAt(0, 0, TEST_LEVEL)).toBe(
+      TerrainMaterial.DynamicMaterial,
+    );
+    expect(target.dynamicMaterialIdAt(position)).toBe("generated:persisted");
+  });
+
+  it("handles unknown dynamic material metadata safely", () => {
+    const terrain = new InfiniteTerrain(42, 4, 1);
+    const position = { q: 0, r: 0, level: TEST_LEVEL };
+
+    terrain.importTerrainEdits([
+      [0, 0, TEST_LEVEL, TerrainMaterial.DynamicMaterial, "missing:material"],
+    ]);
+
+    expect(terrain.materialAt(0, 0, TEST_LEVEL)).toBe(
+      TerrainMaterial.DynamicMaterial,
+    );
+    expect(terrain.dynamicMaterialIdAt(position)).toBe("missing:material");
+  });
+
   it("raycasts a terrain block and returns the adjacent placement cell", () => {
     const terrain = new InfiniteTerrain(42, 4, 1);
     terrain.update({ x: 0, z: 0 });

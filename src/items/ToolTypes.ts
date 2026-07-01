@@ -10,6 +10,9 @@ export type ToolItemKind = Exclude<ToolKind, "hand">;
 export type EquippedTool = Readonly<{
   kind: ToolKind;
   speedMultiplier: number;
+  preferredBlockBonus?: number;
+  instabilityRisk?: number;
+  materialId?: string;
 }>;
 
 export const HAND_TOOL: EquippedTool = {

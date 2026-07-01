@@ -2,6 +2,7 @@ import {
   itemDefinitionFor,
   itemDefinitionOrThrow,
   type ItemId,
+  type MaterialItemResolver,
 } from "./ItemRegistry.ts";
 
 export type SerializedItemStack = Readonly<{
@@ -16,8 +17,12 @@ export type ItemStack = Readonly<{
   durability?: number;
 }>;
 
-export function createItemStack(itemId: ItemId, count = 1): ItemStack {
-  const item = itemDefinitionOrThrow(itemId);
+export function createItemStack(
+  itemId: ItemId,
+  count = 1,
+  resolver?: MaterialItemResolver | null,
+): ItemStack {
+  const item = itemDefinitionOrThrow(itemId, resolver);
   const safeCount = Math.max(1, Math.min(item.maxStackSize, Math.floor(count)));
 
   if (item.kind === "tool") {
@@ -36,12 +41,13 @@ export function createItemStack(itemId: ItemId, count = 1): ItemStack {
 
 export function normalizeItemStack(
   stack: SerializedItemStack | ItemStack | null | undefined,
+  resolver?: MaterialItemResolver | null,
 ): ItemStack | null {
   if (!stack || !Number.isFinite(stack.count) || stack.count <= 0) {
     return null;
   }
 
-  const item = itemDefinitionFor(stack.itemId);
+  const item = itemDefinitionFor(stack.itemId, resolver);
 
   if (!item) {
     return null;
@@ -83,19 +89,23 @@ export function serializeItemStack(
 export function canMergeItemStacks(
   first: ItemStack | null,
   second: ItemStack | null,
+  resolver?: MaterialItemResolver | null,
 ): boolean {
   if (!first || !second || first.itemId !== second.itemId) {
     return false;
   }
 
-  return itemDefinitionOrThrow(first.itemId).kind !== "tool";
+  const item = itemDefinitionFor(first.itemId, resolver);
+
+  return item !== null && item.kind !== "tool";
 }
 
 export function damageToolStack(
   stack: ItemStack,
   amount = 1,
+  resolver?: MaterialItemResolver | null,
 ): ItemStack | null {
-  const item = itemDefinitionOrThrow(stack.itemId);
+  const item = itemDefinitionOrThrow(stack.itemId, resolver);
 
   if (item.kind !== "tool") {
     return stack;

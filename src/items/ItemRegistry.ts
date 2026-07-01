@@ -1,4 +1,15 @@
 import { TerrainMaterial } from "../geometry/terrainChunk.ts";
+import type { MaterialDefinition } from "../materials/MaterialTypes.ts";
+import {
+  modifiedToolStatsForMaterial,
+  type MaterialToolModifier,
+} from "./MaterialToolModifier.ts";
+import {
+  modifiedToolItemId,
+  modifiedToolPartsFromItemId,
+  type ModifiableBaseToolItemId,
+  type ModifiedToolItemId,
+} from "./ModifiedToolTypes.ts";
 import {
   BLOCK_DEFINITIONS,
   blockDefinitionFor,
@@ -11,15 +22,26 @@ import {
   type ToolItemKind,
 } from "./ToolTypes.ts";
 
+export {
+  baseToolIdFromModifiedToolItemId,
+  isModifiedToolItemId,
+  materialIdFromModifiedToolItemId,
+  modifiedToolItemId,
+  modifiedToolPartsFromItemId,
+} from "./ModifiedToolTypes.ts";
+
 export type BlockItemId = `block:${BlockId}`;
-export type MaterialItemId =
+export type StaticMaterialItemId =
   | "material:stick"
   | "material:coal"
   | "material:raw_copper"
   | "material:raw_iron"
   | "material:raw_gold"
   | "material:crystal";
-export type ToolItemId = `tool:${ToolItemKind}`;
+export type GeneratedMaterialItemId = `generated-material:${string}`;
+export type MaterialItemId = StaticMaterialItemId | GeneratedMaterialItemId;
+export type StaticToolItemId = `tool:${ToolItemKind}`;
+export type ToolItemId = StaticToolItemId | ModifiedToolItemId;
 export type ItemId = BlockItemId | MaterialItemId | ToolItemId;
 
 type BaseItemDefinition = Readonly<{
@@ -44,13 +66,37 @@ export type ToolItemDefinition = BaseItemDefinition &
     maxDurability: number;
   }>;
 
+export type ModifiedToolItemDefinition = ToolItemDefinition &
+  Readonly<{
+    id: ModifiedToolItemId;
+    baseToolId: ModifiableBaseToolItemId;
+    materialId: string;
+    material: MaterialDefinition;
+    modifier: MaterialToolModifier;
+  }>;
+
 export type MaterialItemDefinition = BaseItemDefinition &
   Readonly<{
     kind: "material";
   }>;
 
+export type GeneratedMaterialItemDefinition = BaseItemDefinition &
+  Readonly<{
+    kind: "generated_material";
+    materialId: string;
+    material: MaterialDefinition;
+  }>;
+
 export type ItemDefinition =
-  BlockItemDefinition | MaterialItemDefinition | ToolItemDefinition;
+  | BlockItemDefinition
+  | GeneratedMaterialItemDefinition
+  | MaterialItemDefinition
+  | ModifiedToolItemDefinition
+  | ToolItemDefinition;
+
+export type MaterialItemResolver = Readonly<{
+  getMaterialById: (materialId: string) => MaterialDefinition | null;
+}>;
 
 const BLOCK_SHORT_NAMES = new Map<number, string>([
   [TerrainMaterial.Planks, "Planks"],
@@ -99,6 +145,10 @@ const TOOL_DEFINITIONS = [
   },
 ] as const satisfies readonly ToolItemDefinition[];
 
+const TOOLS_BY_ID: ReadonlyMap<string, ToolItemDefinition> = new Map(
+  TOOL_DEFINITIONS.map((tool) => [tool.id, tool]),
+);
+
 function itemIdForBlock(block: BlockDefinition): BlockItemId {
   return `block:${block.id}`;
 }
@@ -108,7 +158,8 @@ const BLOCK_ITEM_DEFINITIONS: readonly BlockItemDefinition[] =
     (block) =>
       block.numericId !== TerrainMaterial.Air &&
       block.numericId !== TerrainMaterial.Water &&
-      block.numericId !== TerrainMaterial.Bedrock,
+      block.numericId !== TerrainMaterial.Bedrock &&
+      block.numericId !== TerrainMaterial.DynamicMaterial,
   ).map((block) => ({
     id: itemIdForBlock(block),
     displayName: block.displayName,
@@ -202,12 +253,111 @@ export const DEFAULT_SURVIVAL_HOTBAR_ITEM_IDS = [
 
 export const HOTBAR_SLOT_COUNT = DEFAULT_CREATIVE_HOTBAR_ITEM_IDS.length;
 
-export function itemDefinitionFor(itemId: string): ItemDefinition | null {
-  return ITEMS_BY_ID.get(itemId) ?? null;
+export function itemIdForMaterial(materialId: string): GeneratedMaterialItemId {
+  return `generated-material:${materialId}` as GeneratedMaterialItemId;
 }
 
-export function itemDefinitionOrThrow(itemId: ItemId): ItemDefinition {
-  const item = itemDefinitionFor(itemId);
+export function isStabilizedPlaceableMaterial(
+  material: Pick<MaterialDefinition, "generation" | "stability">,
+): boolean {
+  return material.generation > 0 && material.stability >= 50;
+}
+
+export function isGeneratedMaterialItemId(
+  itemId: string,
+): itemId is GeneratedMaterialItemId {
+  return materialIdFromItemId(itemId) !== null;
+}
+
+export function materialIdFromItemId(itemId: string): string | null {
+  if (!itemId.startsWith("generated-material:")) {
+    return null;
+  }
+
+  const materialId = itemId.slice("generated-material:".length);
+
+  return materialId.trim() === "" ? null : materialId;
+}
+
+function generatedMaterialItemDefinitionFor(
+  itemId: string,
+  resolver: MaterialItemResolver | null | undefined,
+): GeneratedMaterialItemDefinition | null {
+  const materialId = materialIdFromItemId(itemId);
+
+  if (!materialId || !resolver) {
+    return null;
+  }
+
+  const material = resolver.getMaterialById(materialId);
+
+  if (!material) {
+    return null;
+  }
+
+  return {
+    id: itemIdForMaterial(material.id),
+    displayName: material.name,
+    shortName: material.name,
+    maxStackSize: 64,
+    placeable: false,
+    kind: "generated_material",
+    materialId: material.id,
+    material,
+  };
+}
+
+function modifiedToolItemDefinitionFor(
+  itemId: string,
+  resolver: MaterialItemResolver | null | undefined,
+): ModifiedToolItemDefinition | null {
+  const parts = modifiedToolPartsFromItemId(itemId);
+
+  if (!parts || !resolver) {
+    return null;
+  }
+
+  const baseTool = TOOLS_BY_ID.get(parts.baseToolId);
+  const material = resolver.getMaterialById(parts.materialId);
+
+  if (!baseTool || !material) {
+    return null;
+  }
+
+  const stats = modifiedToolStatsForMaterial(baseTool, material);
+
+  return {
+    id: modifiedToolItemId(parts.baseToolId, material.id),
+    displayName: stats.displayName,
+    shortName: stats.shortName,
+    maxStackSize: 1,
+    placeable: false,
+    kind: "tool",
+    tool: stats.tool,
+    maxDurability: stats.maxDurability,
+    baseToolId: parts.baseToolId,
+    materialId: material.id,
+    material,
+    modifier: stats.modifier,
+  };
+}
+
+export function itemDefinitionFor(
+  itemId: string,
+  resolver?: MaterialItemResolver | null,
+): ItemDefinition | null {
+  return (
+    ITEMS_BY_ID.get(itemId) ??
+    generatedMaterialItemDefinitionFor(itemId, resolver) ??
+    modifiedToolItemDefinitionFor(itemId, resolver)
+  );
+}
+
+export function itemDefinitionOrThrow(
+  itemId: ItemId,
+  resolver?: MaterialItemResolver | null,
+): ItemDefinition {
+  const item = itemDefinitionFor(itemId, resolver);
 
   if (!item) {
     throw new Error(`Unknown item: ${itemId}`);
@@ -233,14 +383,25 @@ export function materialForBlockItem(itemId: string): TerrainMaterial | null {
 
 export function placeableMaterialForItem(
   itemId: string,
+  resolver?: MaterialItemResolver | null,
 ): TerrainMaterial | null {
-  const item = itemDefinitionFor(itemId);
+  const item = itemDefinitionFor(itemId, resolver);
+
+  if (
+    item?.kind === "generated_material" &&
+    isStabilizedPlaceableMaterial(item.material)
+  ) {
+    return TerrainMaterial.DynamicMaterial;
+  }
 
   return item?.kind === "block" && item.placeable ? item.material : null;
 }
 
-export function equippedToolForItem(itemId: string | null): EquippedTool {
-  const item = itemId ? itemDefinitionFor(itemId) : null;
+export function equippedToolForItem(
+  itemId: string | null,
+  resolver?: MaterialItemResolver | null,
+): EquippedTool {
+  const item = itemId ? itemDefinitionFor(itemId, resolver) : null;
 
   return item?.kind === "tool" ? item.tool : HAND_TOOL;
 }

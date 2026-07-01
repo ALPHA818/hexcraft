@@ -1,5 +1,5 @@
 export const BLOCK_TEXTURE_TILE_SIZE = 64;
-export const BLOCK_TEXTURE_TILE_COUNT = 23;
+export const BLOCK_TEXTURE_TILE_COUNT = 24;
 export const BLOCK_TEXTURE_ATLAS_WIDTH =
   BLOCK_TEXTURE_TILE_SIZE * BLOCK_TEXTURE_TILE_COUNT;
 export const BLOCK_TEXTURE_ATLAS_HEIGHT = BLOCK_TEXTURE_TILE_SIZE;
@@ -28,6 +28,7 @@ export const enum BlockTexture {
   GoldOre = 20,
   CrystalOre = 21,
   Torch = 22,
+  DynamicMaterial = 23,
 }
 
 export type TextureAtlasData = Readonly<{
@@ -593,6 +594,24 @@ export function createBlockTextureAtlas(): TextureAtlasData {
           255,
         );
       }
+
+      const dynamicCell = sampleHexCell(x, y, 641);
+      const dynamicSpeckle = noise(x, y, 653);
+      const dynamicVein =
+        Math.abs(((x * 2 + y) % 23) - 11) < 1 ||
+        Math.abs(((x - y * 2) % 29) - 14) < 1;
+      const dynamicFacet =
+        dynamicSpeckle > 0.82 || dynamicCell.value < 0.16 || dynamicVein;
+      const dynamicShade = dynamicCell.value * 40 - 18 - dynamicCell.edge * 8;
+      setPixel(
+        pixels,
+        BlockTexture.DynamicMaterial,
+        x,
+        y,
+        dynamicFacet ? 198 + dynamicShade * 0.35 : 116 + dynamicShade,
+        dynamicFacet ? 205 + dynamicShade * 0.35 : 119 + dynamicShade,
+        dynamicFacet ? 214 + dynamicShade * 0.38 : 124 + dynamicShade,
+      );
     }
   }
 

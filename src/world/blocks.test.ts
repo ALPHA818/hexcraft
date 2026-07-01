@@ -52,6 +52,18 @@ describe("block registry", () => {
     expect(blockDefinitionFor(TerrainMaterial.Air).lightEmission ?? 0).toBe(0);
   });
 
+  it("registers a generic dynamic material block", () => {
+    const dynamicMaterial = blockDefinitionFor(TerrainMaterial.DynamicMaterial);
+
+    expect(dynamicMaterial).toMatchObject({
+      id: "dynamic_material",
+      displayName: "Dynamic Material",
+      placeable: true,
+      breakable: true,
+      solid: true,
+    });
+  });
+
   it("registers unique numeric ids", () => {
     const numericIds = BLOCK_DEFINITIONS.map((block) => block.numericId);
 

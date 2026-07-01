@@ -4,8 +4,10 @@ import {
   buildTerrainChunk,
   generateTerrainColumns,
   TerrainMaterial,
+  type TerrainChunkMesh,
   type TerrainColumn,
 } from "./terrainChunk.ts";
+import type { MaterialVisuals } from "../materials/MaterialVisuals.ts";
 
 function columnWithBlocks(
   q: number,
@@ -17,6 +19,23 @@ function columnWithBlocks(
     r,
     height: blocks.length,
     blocks: Uint8Array.from(blocks),
+  };
+}
+
+function firstVertexColor(
+  mesh: TerrainChunkMesh,
+): readonly [number, number, number] {
+  return [mesh.vertices[6]!, mesh.vertices[7]!, mesh.vertices[8]!];
+}
+
+function visual(baseColor: string, accentColor: string): MaterialVisuals {
+  return {
+    baseColor: baseColor as MaterialVisuals["baseColor"],
+    accentColor: accentColor as MaterialVisuals["accentColor"],
+    roughness: 0.6,
+    metallic: 0,
+    emissiveStrength: 0,
+    alpha: 1,
   };
 }
 
@@ -133,5 +152,25 @@ describe("terrain chunk generation", () => {
     expect(mesh.emittedFaceCount).toBe(0);
     expect(mesh.emittedTriangleCount).toBe(0);
     expect(mesh.vertexCount).toBe(0);
+  });
+
+  it("tints dynamic material blocks from provided visuals", () => {
+    const dynamicColumn = columnWithBlocks(0, 0, [
+      TerrainMaterial.Air,
+      TerrainMaterial.DynamicMaterial,
+      TerrainMaterial.Air,
+    ]);
+    const blueMesh = buildTerrainChunk([dynamicColumn], undefined, undefined, {
+      dynamicMaterialVisualAt: () => visual("#2864d9", "#9fceff"),
+    });
+    const greenMesh = buildTerrainChunk([dynamicColumn], undefined, undefined, {
+      dynamicMaterialVisualAt: () => visual("#36b85a", "#cfffa0"),
+    });
+    const blueColor = firstVertexColor(blueMesh);
+    const greenColor = firstVertexColor(greenMesh);
+
+    expect(blueColor[2]).toBeGreaterThan(blueColor[0]);
+    expect(greenColor[1]).toBeGreaterThan(greenColor[2]);
+    expect(greenColor).not.toEqual(blueColor);
   });
 });

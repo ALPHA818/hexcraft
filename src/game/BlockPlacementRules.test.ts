@@ -166,6 +166,21 @@ describe("block placement rules", () => {
     });
   });
 
+  it("can place a dynamic material block", () => {
+    const result = validateBlockPlacement(
+      baseInput({
+        selectedItemId: "generated-material:generated:stable-block",
+        selectedMaterial: TerrainMaterial.DynamicMaterial,
+      }),
+    );
+
+    expect(result).toMatchObject({
+      ok: true,
+      consumeItem: true,
+      material: TerrainMaterial.DynamicMaterial,
+    });
+  });
+
   it("requires a valid adjacent raycast cell", () => {
     const result = validateBlockPlacement(
       baseInput({

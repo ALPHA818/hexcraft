@@ -1,7 +1,11 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { TerrainMaterial } from "../geometry/terrainChunk.ts";
+import { itemIdForMaterial } from "../items/ItemRegistry.ts";
 import { createItemStack } from "../items/ItemStack.ts";
+import { combineMaterials } from "../materials/MaterialCombiner.ts";
+import { MaterialRegistry } from "../materials/MaterialRegistry.ts";
+import type { MaterialDefinition } from "../materials/MaterialTypes.ts";
 import { Inventory, minedDrop } from "./Inventory.ts";
 
 function createElementStub(): HTMLElement {
@@ -39,6 +43,38 @@ function stubInventoryDocument(): {
   });
 
   return elements;
+}
+
+function materialRegistry(): MaterialRegistry {
+  const registry = new MaterialRegistry();
+
+  registry.registerBaseMaterials();
+  return registry;
+}
+
+function generatedMaterial(id: string, stability: number): MaterialDefinition {
+  return {
+    id,
+    name: "Generated Block",
+    generation: 1,
+    parents: ["element:silicon", "element:carbon"],
+    rarity: "common",
+    stability,
+    hardness: 70,
+    density: 60,
+    heat: 20,
+    conductivity: 20,
+    toxicity: 0,
+    radioactivity: 0,
+    magic: 0,
+    organic: 0,
+    metal: 20,
+    crystal: 20,
+    gas: 0,
+    liquid: 0,
+    tags: ["earth"],
+    discoveredAt: 1,
+  };
 }
 
 afterEach(() => {
@@ -141,6 +177,93 @@ describe("survival inventory drops", () => {
     expect(target.count(TerrainMaterial.Wood)).toBe(3);
     expect(target.countItem("material:raw_iron")).toBe(2);
     expect(target.selectedTool().kind).toBe("pickaxe");
+  });
+
+  it("can add base element material items", () => {
+    stubInventoryDocument();
+    const registry = materialRegistry();
+    const inventory = new Inventory("survival", () => {}, registry);
+    const ironItemId = itemIdForMaterial("element:iron");
+
+    expect(inventory.addItem(ironItemId, 3)).toBe(true);
+    expect(inventory.countItem(ironItemId)).toBe(3);
+    expect(
+      inventory
+        .exportState()
+        .slots?.some((slot) => slot?.itemId === ironItemId && slot.count === 3),
+    ).toBe(true);
+  });
+
+  it("can add generated material items and stacks them to 64", () => {
+    stubInventoryDocument();
+    const registry = materialRegistry();
+    const iron = registry.getMaterialById("element:iron");
+    const carbon = registry.getMaterialById("element:carbon");
+
+    expect(iron).not.toBeNull();
+    expect(carbon).not.toBeNull();
+    if (!iron || !carbon) {
+      return;
+    }
+
+    const result = combineMaterials(iron, carbon, registry);
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) {
+      return;
+    }
+
+    const itemId = itemIdForMaterial(result.material.id);
+    const inventory = new Inventory("survival", () => {}, registry);
+
+    expect(inventory.addItem(itemId, 65)).toBe(true);
+    expect(inventory.countItem(itemId)).toBe(65);
+    expect(
+      inventory
+        .exportState()
+        .slots?.filter((slot) => slot?.itemId === itemId)
+        .map((slot) => slot?.count),
+    ).toEqual([64, 1]);
+  });
+
+  it("treats stabilized generated material items as placeable dynamic blocks", () => {
+    stubInventoryDocument();
+    const registry = materialRegistry();
+    const material = generatedMaterial("generated:stable-block", 82);
+
+    registry.registerGeneratedMaterial(material);
+    const inventory = new Inventory("survival", () => {}, registry);
+    const itemId = itemIdForMaterial(material.id);
+
+    inventory.setSlot(0, { itemId, count: 1 });
+
+    expect(inventory.selectedPlaceableMaterial()).toBe(
+      TerrainMaterial.DynamicMaterial,
+    );
+    expect(inventory.selectedDynamicMaterialId()).toBe(material.id);
+  });
+
+  it("does not place unstable generated material items", () => {
+    stubInventoryDocument();
+    const registry = materialRegistry();
+    const material = generatedMaterial("generated:unstable-block", 20);
+
+    registry.registerGeneratedMaterial(material);
+    const inventory = new Inventory("survival", () => {}, registry);
+
+    inventory.setSlot(0, { itemId: itemIdForMaterial(material.id), count: 1 });
+
+    expect(inventory.selectedPlaceableMaterial()).toBeNull();
+    expect(inventory.selectedDynamicMaterialId()).toBeNull();
+  });
+
+  it("rejects unknown generated material item ids cleanly", () => {
+    stubInventoryDocument();
+    const inventory = new Inventory("survival", () => {}, materialRegistry());
+
+    expect(inventory.addItem(itemIdForMaterial("generated:missing"), 1)).toBe(
+      false,
+    );
   });
 
   it("crafts planks, sticks, and wooden tools from recipes", () => {

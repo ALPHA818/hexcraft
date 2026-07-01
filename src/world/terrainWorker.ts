@@ -4,6 +4,7 @@ import {
   type TerrainEdit,
 } from "./InfiniteTerrain.ts";
 import type { TerrainColumn } from "../geometry/terrainChunk.ts";
+import type { MaterialVisuals } from "../materials/MaterialVisuals.ts";
 
 type TerrainWorkerRequest = Readonly<{
   requestId: number;
@@ -12,6 +13,7 @@ type TerrainWorkerRequest = Readonly<{
   renderDistance: number;
   seed: number;
   edits: readonly TerrainEdit[];
+  dynamicMaterialVisuals?: Readonly<Record<string, MaterialVisuals>>;
 }>;
 
 type TerrainWorkerResponse = Readonly<{
@@ -44,6 +46,7 @@ workerScope.addEventListener(
       request.seed,
       request.edits,
       columnCache,
+      (materialId) => request.dynamicMaterialVisuals?.[materialId] ?? null,
     );
     const update = result.update;
 

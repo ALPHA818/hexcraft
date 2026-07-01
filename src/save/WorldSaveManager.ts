@@ -1,14 +1,25 @@
 import type { GameSettings } from "../game/GameSettings.ts";
+import {
+  DEFAULT_MATERIAL_CONFIG,
+  type MaterialConfig,
+} from "../materials/MaterialConfig.ts";
 import type { SerializedGameTimeState } from "../world/GameTime.ts";
+import {
+  defaultMaterialResearchState,
+  type SerializedMaterialResearch,
+} from "../materials/MaterialResearch.ts";
 import { createSaveDatabase, type WorldSaveDatabase } from "./SaveDatabase.ts";
 import {
   CURRENT_SAVE_VERSION,
+  createStartingMaterialCodex,
   emptyRuntimeStateSave,
   metadataFromSettings,
   runtimeStateWithDefaults,
+  settingsFromMetadata,
   terrainEditChunkId,
   type LoadedWorldSave,
   type SerializedInventory,
+  type SerializedMaterialCodex,
   type SerializedPlayerState,
   type TerrainEditChunkSave,
   type WorldRuntimeStateSave,
@@ -20,6 +31,8 @@ export type SaveWorldPayload = Readonly<{
   player: SerializedPlayerState;
   inventory: SerializedInventory;
   gameTime?: SerializedGameTimeState;
+  materialCodex?: SerializedMaterialCodex;
+  materialResearch?: SerializedMaterialResearch;
   terrainEditChunks: readonly Omit<TerrainEditChunkSave, "id" | "worldId">[];
 }>;
 
@@ -47,6 +60,13 @@ function attachWorldIdToChunk(
 }
 
 export function migrateWorldSaveData(save: LoadedWorldSave): LoadedWorldSave {
+  if (!save.runtime.materialCodex) {
+    return {
+      ...save,
+      runtime: runtimeStateWithDefaults(save.metadata.id, save.runtime),
+    };
+  }
+
   // Placeholder for future migrations. Version 1 is the initial format.
   if (save.metadata.saveVersion === CURRENT_SAVE_VERSION) {
     return save;
@@ -57,9 +77,14 @@ export function migrateWorldSaveData(save: LoadedWorldSave): LoadedWorldSave {
 
 export class WorldSaveManager {
   readonly #database: WorldSaveDatabase;
+  readonly #materialConfig: MaterialConfig;
 
-  constructor(database: WorldSaveDatabase = createSaveDatabase()) {
+  constructor(
+    database: WorldSaveDatabase = createSaveDatabase(),
+    materialConfig: MaterialConfig = DEFAULT_MATERIAL_CONFIG,
+  ) {
     this.#database = database;
+    this.#materialConfig = materialConfig;
   }
 
   async listWorlds(): Promise<WorldSaveMetadata[]> {
@@ -71,7 +96,10 @@ export class WorldSaveManager {
     now = Date.now(),
   ): Promise<LoadedWorldSave> {
     const metadata = metadataFromSettings(createWorldId(), settings, now);
-    const runtime = emptyRuntimeStateSave(metadata.id);
+    const runtime = emptyRuntimeStateSave(
+      metadata.id,
+      createStartingMaterialCodex(settings, this.#materialConfig),
+    );
 
     await this.#database.putWorldMetadata(metadata);
     await this.#database.putWorldRuntimeState(runtime);
@@ -94,6 +122,10 @@ export class WorldSaveManager {
     const runtime = runtimeStateWithDefaults(
       worldId,
       await this.#database.getWorldRuntimeState(worldId),
+      createStartingMaterialCodex(
+        settingsFromMetadata(metadata),
+        this.#materialConfig,
+      ),
     );
     const terrainEditChunks =
       await this.#database.getTerrainEditChunks(worldId);
@@ -114,6 +146,13 @@ export class WorldSaveManager {
       saveVersion: CURRENT_SAVE_VERSION,
       updatedAt: now,
     };
+    const defaultMaterialCodex = createStartingMaterialCodex(
+      settingsFromMetadata(metadata),
+      this.#materialConfig,
+    );
+    const existingRuntime = await this.#database.getWorldRuntimeState(
+      metadata.id,
+    );
     const runtime: WorldRuntimeStateSave = {
       worldId: metadata.id,
       player: payload.player,
@@ -121,6 +160,22 @@ export class WorldSaveManager {
       gameTime: runtimeStateWithDefaults(metadata.id, {
         gameTime: payload.gameTime,
       }).gameTime,
+      materialResearch: runtimeStateWithDefaults(metadata.id, {
+        materialResearch:
+          payload.materialResearch ??
+          existingRuntime?.materialResearch ??
+          defaultMaterialResearchState(),
+      }).materialResearch,
+      materialCodex: runtimeStateWithDefaults(
+        metadata.id,
+        {
+          materialCodex:
+            payload.materialCodex ??
+            existingRuntime?.materialCodex ??
+            defaultMaterialCodex,
+        } as Partial<WorldRuntimeStateSave>,
+        defaultMaterialCodex,
+      ).materialCodex,
     };
     const terrainEditChunks = payload.terrainEditChunks.map((chunk) =>
       attachWorldIdToChunk(metadata.id, chunk),

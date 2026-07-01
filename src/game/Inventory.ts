@@ -13,6 +13,7 @@ import {
   ITEM_DEFINITIONS,
   itemDefinitionFor,
   itemDefinitionOrThrow,
+  type MaterialItemResolver,
   placeableMaterialForItem,
   type ItemDefinition,
   type ItemId,
@@ -26,6 +27,7 @@ import {
   type ItemStack,
 } from "../items/ItemStack.ts";
 import type { EquippedTool } from "../items/ToolTypes.ts";
+import { materialVisualsForMaterial } from "../materials/MaterialVisuals.ts";
 import type { SerializedInventory } from "../save/WorldSaveTypes.ts";
 import { minedDrop as registryMinedDrop } from "../world/blocks.ts";
 import type { GameMode } from "./gameMode.ts";
@@ -65,6 +67,28 @@ function safeItemClass(itemId: string): string {
   return `item-${itemId.replace(/[^a-z0-9_-]/gi, "-")}`;
 }
 
+function applyGeneratedMaterialVisual(
+  element: HTMLElement,
+  item: ItemDefinition | null,
+): void {
+  if (item?.kind !== "generated_material") {
+    return;
+  }
+
+  const visuals = materialVisualsForMaterial(item.material);
+
+  element.classList.add("generated-material-visual");
+  element.style?.setProperty("--item-base-color", visuals.baseColor);
+  element.style?.setProperty("--item-accent-color", visuals.accentColor);
+}
+
+function createItemSwatch(): HTMLElement {
+  const swatch = document.createElement("span");
+
+  swatch.className = "item-swatch";
+  return swatch;
+}
+
 export class Inventory {
   readonly #hotbar: HTMLElement;
   readonly #panel: HTMLElement;
@@ -72,6 +96,7 @@ export class Inventory {
   readonly #recipeList: HTMLElement;
   readonly #crafting: CraftingController;
   readonly #isCreative: boolean;
+  readonly #materialItemResolver: MaterialItemResolver | null;
   readonly #onOpenChange: (isOpen: boolean) => void;
 
   #slots: Array<ItemStack | null>;
@@ -82,6 +107,7 @@ export class Inventory {
   constructor(
     mode: GameMode = "survival",
     onOpenChange: (isOpen: boolean) => void = () => {},
+    materialItemResolver: MaterialItemResolver | null = null,
   ) {
     const hotbar = document.querySelector<HTMLElement>("#hotbar");
     const panel = document.querySelector<HTMLElement>("#inventory-panel");
@@ -99,6 +125,7 @@ export class Inventory {
     this.#inventoryCounts = inventoryCounts;
     this.#recipeList = recipeList;
     this.#isCreative = mode === "creative";
+    this.#materialItemResolver = materialItemResolver;
     this.#onOpenChange = onOpenChange;
     this.#slots = this.#isCreative
       ? createCreativeSlots()
@@ -136,7 +163,7 @@ export class Inventory {
   selectedItem(): ItemDefinition | null {
     const stack = this.selectedStack();
 
-    return stack ? itemDefinitionFor(stack.itemId) : null;
+    return stack ? this.#itemDefinitionFor(stack.itemId) : null;
   }
 
   selectedItemId(): ItemId | null {
@@ -150,11 +177,26 @@ export class Inventory {
   selectedPlaceableMaterial(): TerrainMaterial | null {
     const stack = this.selectedStack();
 
-    return stack ? placeableMaterialForItem(stack.itemId) : null;
+    return stack
+      ? placeableMaterialForItem(stack.itemId, this.#materialItemResolver)
+      : null;
+  }
+
+  selectedDynamicMaterialId(): string | null {
+    const stack = this.selectedStack();
+    const item = stack ? this.#itemDefinitionFor(stack.itemId) : null;
+
+    return item?.kind === "generated_material" &&
+      this.selectedPlaceableMaterial() === TerrainMaterial.DynamicMaterial
+      ? item.materialId
+      : null;
   }
 
   selectedTool(): EquippedTool {
-    return equippedToolForItem(this.selectedItemId());
+    return equippedToolForItem(
+      this.selectedItemId(),
+      this.#materialItemResolver,
+    );
   }
 
   slot(index: number): ItemStack | null {
@@ -166,7 +208,7 @@ export class Inventory {
       return;
     }
 
-    this.#slots[index] = normalizeItemStack(stack);
+    this.#slots[index] = this.#normalizeItemStack(stack);
     this.render();
   }
 
@@ -176,11 +218,15 @@ export class Inventory {
     }
 
     const stack = this.selectedStack();
-    if (!stack || itemDefinitionFor(stack.itemId)?.kind !== "tool") {
+    if (!stack || this.#itemDefinitionFor(stack.itemId)?.kind !== "tool") {
       return;
     }
 
-    this.#slots[this.#selectedIndex] = damageToolStack(stack, amount);
+    this.#slots[this.#selectedIndex] = damageToolStack(
+      stack,
+      amount,
+      this.#materialItemResolver,
+    );
     this.render();
   }
 
@@ -200,7 +246,7 @@ export class Inventory {
     if (state.slots) {
       for (const [index, stack] of state.slots.entries()) {
         if (index < importedSlots.length) {
-          importedSlots[index] = normalizeItemStack(stack);
+          importedSlots[index] = this.#normalizeItemStack(stack);
         }
       }
     } else if (state.items) {
@@ -226,7 +272,7 @@ export class Inventory {
   }
 
   countItem(itemId: ItemId): number {
-    if (!itemDefinitionFor(itemId)) {
+    if (!this.#itemDefinitionFor(itemId)) {
       return 0;
     }
 
@@ -351,7 +397,7 @@ export class Inventory {
     this.#hotbar.replaceChildren(
       ...this.#slots.map((stack, index) => {
         const slot = document.createElement("button");
-        const item = stack ? itemDefinitionFor(stack.itemId) : null;
+        const item = stack ? this.#itemDefinitionFor(stack.itemId) : null;
 
         slot.className = "hotbar-slot";
         slot.classList.toggle("selected", index === this.#selectedIndex);
@@ -362,11 +408,14 @@ export class Inventory {
             slot.classList.add(`material-${item.material}`);
           }
         }
+        applyGeneratedMaterialVisual(slot, item);
         slot.type = "button";
-        slot.innerHTML =
-          `<span class="slot-key">${index + 1}</span>` +
-          `<span class="slot-name">${item?.shortName ?? "Empty"}</span>` +
-          `<strong>${this.#stackCountLabel(stack)}</strong>`;
+        slot.append(
+          this.#textElement("span", "slot-key", String(index + 1)),
+          createItemSwatch(),
+          this.#textElement("span", "slot-name", item?.shortName ?? "Empty"),
+          this.#textElement("strong", "", this.#stackCountLabel(stack)),
+        );
         slot.title = item?.displayName ?? "Empty slot";
         slot.addEventListener("click", () => this.select(index));
         return slot;
@@ -374,11 +423,22 @@ export class Inventory {
     );
 
     this.#inventoryCounts.replaceChildren(
-      ...ITEM_DEFINITIONS.map((item) => {
+      ...this.#inventoryItemsForDisplay().map((item) => {
         const row = document.createElement("div");
+        const label = document.createElement("span");
+
         row.className = `inventory-item-row ${safeItemClass(item.id)}`;
         row.classList.add(`inventory-kind-${item.kind}`);
-        row.innerHTML = `<span>${item.displayName}</span><strong>${this.#itemCountLabel(item)}</strong>`;
+        applyGeneratedMaterialVisual(row, item);
+        label.className = "inventory-item-label";
+        label.append(
+          createItemSwatch(),
+          this.#textElement("span", "", item.displayName),
+        );
+        row.append(
+          label,
+          this.#textElement("strong", "", this.#itemCountLabel(item)),
+        );
         return row;
       }),
     );
@@ -394,7 +454,7 @@ export class Inventory {
       return "";
     }
 
-    const item = itemDefinitionFor(stack.itemId);
+    const item = this.#itemDefinitionFor(stack.itemId);
 
     if (!item) {
       return "";
@@ -423,6 +483,52 @@ export class Inventory {
       : String(this.countItem(item.id));
   }
 
+  #itemDefinitionFor(itemId: string): ItemDefinition | null {
+    return itemDefinitionFor(itemId, this.#materialItemResolver);
+  }
+
+  #textElement<TagName extends keyof HTMLElementTagNameMap>(
+    tagName: TagName,
+    className: string,
+    text: string,
+  ): HTMLElementTagNameMap[TagName] {
+    const element = document.createElement(tagName);
+
+    element.className = className;
+    element.textContent = text;
+    return element;
+  }
+
+  #createItemStack(itemId: ItemId, count = 1): ItemStack {
+    return createItemStack(itemId, count, this.#materialItemResolver);
+  }
+
+  #normalizeItemStack(
+    stack: ItemStack | ReturnType<typeof serializeItemStack> | null | undefined,
+  ): ItemStack | null {
+    return normalizeItemStack(stack, this.#materialItemResolver);
+  }
+
+  #inventoryItemsForDisplay(): readonly ItemDefinition[] {
+    const itemsById = new Map<string, ItemDefinition>(
+      ITEM_DEFINITIONS.map((item) => [item.id, item]),
+    );
+
+    for (const stack of this.#slots) {
+      if (!stack || itemsById.has(stack.itemId)) {
+        continue;
+      }
+
+      const item = this.#itemDefinitionFor(stack.itemId);
+
+      if (item) {
+        itemsById.set(item.id, item);
+      }
+    }
+
+    return [...itemsById.values()];
+  }
+
   #addStackToSlots(
     slots: Array<ItemStack | null>,
     material: TerrainMaterial,
@@ -443,7 +549,7 @@ export class Inventory {
     if (amount <= 0) {
       return true;
     }
-    const item = itemDefinitionFor(itemId);
+    const item = this.#itemDefinitionFor(itemId);
 
     if (!item) {
       return false;
@@ -452,7 +558,14 @@ export class Inventory {
 
     if (item.kind !== "tool") {
       for (const [index, stack] of slots.entries()) {
-        if (!stack || !canMergeItemStacks(stack, createItemStack(itemId))) {
+        if (
+          !stack ||
+          !canMergeItemStacks(
+            stack,
+            this.#createItemStack(itemId),
+            this.#materialItemResolver,
+          )
+        ) {
           continue;
         }
 
@@ -477,7 +590,7 @@ export class Inventory {
 
       const added =
         item.kind === "tool" ? 1 : Math.min(item.maxStackSize, remaining);
-      slots[index] = createItemStack(itemId, added);
+      slots[index] = this.#createItemStack(itemId, added);
       remaining -= added;
 
       if (remaining === 0) {
@@ -527,7 +640,7 @@ export class Inventory {
   }
 
   #recipeStackLabel(stack: RecipeStack): string {
-    const item = itemDefinitionFor(stack.itemId);
+    const item = this.#itemDefinitionFor(stack.itemId);
 
     return `${stack.count} ${item?.displayName ?? stack.itemId}`;
   }
