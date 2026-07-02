@@ -13,11 +13,11 @@ import {
   ITEM_DEFINITIONS,
   itemDefinitionFor,
   itemDefinitionOrThrow,
-  type MaterialItemResolver,
   placeableMaterialForItem,
   type ItemDefinition,
   type ItemId,
 } from "../items/ItemRegistry.ts";
+import type { MaterialItemResolver } from "../items/MaterialItemResolver.ts";
 import {
   canMergeItemStacks,
   createItemStack,
@@ -71,7 +71,7 @@ function applyGeneratedMaterialVisual(
   element: HTMLElement,
   item: ItemDefinition | null,
 ): void {
-  if (item?.kind !== "generated_material") {
+  if (item?.kind !== "generated_material" || !item.material) {
     return;
   }
 
@@ -98,6 +98,7 @@ export class Inventory {
   readonly #isCreative: boolean;
   readonly #materialItemResolver: MaterialItemResolver | null;
   readonly #onOpenChange: (isOpen: boolean) => void;
+  readonly #openMaterialCombiner: () => void;
 
   #slots: Array<ItemStack | null>;
   #selectedIndex = 0;
@@ -108,6 +109,7 @@ export class Inventory {
     mode: GameMode = "survival",
     onOpenChange: (isOpen: boolean) => void = () => {},
     materialItemResolver: MaterialItemResolver | null = null,
+    openMaterialCombiner: () => void = () => {},
   ) {
     const hotbar = document.querySelector<HTMLElement>("#hotbar");
     const panel = document.querySelector<HTMLElement>("#inventory-panel");
@@ -127,6 +129,7 @@ export class Inventory {
     this.#isCreative = mode === "creative";
     this.#materialItemResolver = materialItemResolver;
     this.#onOpenChange = onOpenChange;
+    this.#openMaterialCombiner = openMaterialCombiner;
     this.#slots = this.#isCreative
       ? createCreativeSlots()
       : createSurvivalSlots();
@@ -443,6 +446,7 @@ export class Inventory {
       }),
     );
     this.#recipeList.replaceChildren(
+      this.#createMaterialCombinerRow(),
       ...this.#crafting
         .recipesForStation("inventory")
         .map((recipe) => this.#createRecipeRow(recipe)),
@@ -620,6 +624,24 @@ export class Inventory {
     button.addEventListener("click", () => {
       this.craftRecipe(recipe.id);
     });
+    details.append(title, summary);
+    row.append(details, button);
+    return row;
+  }
+
+  #createMaterialCombinerRow(): HTMLElement {
+    const row = document.createElement("article");
+    const details = document.createElement("div");
+    const title = document.createElement("strong");
+    const summary = document.createElement("p");
+    const button = document.createElement("button");
+
+    row.className = "recipe material-combiner-entry can-craft";
+    title.textContent = "Material Processing";
+    summary.textContent = "Procedural material station";
+    button.type = "button";
+    button.textContent = "Material Combiner";
+    button.addEventListener("click", () => this.#openMaterialCombiner());
     details.append(title, summary);
     row.append(details, button);
     return row;

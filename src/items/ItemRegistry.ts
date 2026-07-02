@@ -1,6 +1,12 @@
 import { TerrainMaterial } from "../geometry/terrainChunk.ts";
 import type { MaterialDefinition } from "../materials/MaterialTypes.ts";
 import {
+  generatedMaterialItemDefinitionFor,
+  type GeneratedMaterialItemDefinition,
+  type GeneratedMaterialItemId,
+  type MaterialItemResolver,
+} from "./MaterialItemResolver.ts";
+import {
   modifiedToolStatsForMaterial,
   type MaterialToolModifier,
 } from "./MaterialToolModifier.ts";
@@ -29,6 +35,16 @@ export {
   modifiedToolItemId,
   modifiedToolPartsFromItemId,
 } from "./ModifiedToolTypes.ts";
+export {
+  isGeneratedMaterialItemId,
+  itemIdForMaterial,
+  materialIdFromItemId,
+} from "./MaterialItemResolver.ts";
+export type {
+  GeneratedMaterialItemDefinition,
+  GeneratedMaterialItemId,
+  MaterialItemResolver,
+} from "./MaterialItemResolver.ts";
 
 export type BlockItemId = `block:${BlockId}`;
 export type StaticMaterialItemId =
@@ -38,7 +54,6 @@ export type StaticMaterialItemId =
   | "material:raw_iron"
   | "material:raw_gold"
   | "material:crystal";
-export type GeneratedMaterialItemId = `generated-material:${string}`;
 export type MaterialItemId = StaticMaterialItemId | GeneratedMaterialItemId;
 export type StaticToolItemId = `tool:${ToolItemKind}`;
 export type ToolItemId = StaticToolItemId | ModifiedToolItemId;
@@ -80,23 +95,12 @@ export type MaterialItemDefinition = BaseItemDefinition &
     kind: "material";
   }>;
 
-export type GeneratedMaterialItemDefinition = BaseItemDefinition &
-  Readonly<{
-    kind: "generated_material";
-    materialId: string;
-    material: MaterialDefinition;
-  }>;
-
 export type ItemDefinition =
   | BlockItemDefinition
   | GeneratedMaterialItemDefinition
   | MaterialItemDefinition
   | ModifiedToolItemDefinition
   | ToolItemDefinition;
-
-export type MaterialItemResolver = Readonly<{
-  getMaterialById: (materialId: string) => MaterialDefinition | null;
-}>;
 
 const BLOCK_SHORT_NAMES = new Map<number, string>([
   [TerrainMaterial.Planks, "Planks"],
@@ -253,58 +257,10 @@ export const DEFAULT_SURVIVAL_HOTBAR_ITEM_IDS = [
 
 export const HOTBAR_SLOT_COUNT = DEFAULT_CREATIVE_HOTBAR_ITEM_IDS.length;
 
-export function itemIdForMaterial(materialId: string): GeneratedMaterialItemId {
-  return `generated-material:${materialId}` as GeneratedMaterialItemId;
-}
-
 export function isStabilizedPlaceableMaterial(
   material: Pick<MaterialDefinition, "generation" | "stability">,
 ): boolean {
   return material.generation > 0 && material.stability >= 50;
-}
-
-export function isGeneratedMaterialItemId(
-  itemId: string,
-): itemId is GeneratedMaterialItemId {
-  return materialIdFromItemId(itemId) !== null;
-}
-
-export function materialIdFromItemId(itemId: string): string | null {
-  if (!itemId.startsWith("generated-material:")) {
-    return null;
-  }
-
-  const materialId = itemId.slice("generated-material:".length);
-
-  return materialId.trim() === "" ? null : materialId;
-}
-
-function generatedMaterialItemDefinitionFor(
-  itemId: string,
-  resolver: MaterialItemResolver | null | undefined,
-): GeneratedMaterialItemDefinition | null {
-  const materialId = materialIdFromItemId(itemId);
-
-  if (!materialId || !resolver) {
-    return null;
-  }
-
-  const material = resolver.getMaterialById(materialId);
-
-  if (!material) {
-    return null;
-  }
-
-  return {
-    id: itemIdForMaterial(material.id),
-    displayName: material.name,
-    shortName: material.name,
-    maxStackSize: 64,
-    placeable: false,
-    kind: "generated_material",
-    materialId: material.id,
-    material,
-  };
 }
 
 function modifiedToolItemDefinitionFor(
@@ -389,6 +345,7 @@ export function placeableMaterialForItem(
 
   if (
     item?.kind === "generated_material" &&
+    item.material &&
     isStabilizedPlaceableMaterial(item.material)
   ) {
     return TerrainMaterial.DynamicMaterial;

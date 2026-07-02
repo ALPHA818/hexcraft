@@ -383,7 +383,8 @@ body {
 .menu-open #hotbar,
 .menu-open #mobile-controls,
 .menu-open #inventory-panel,
-.menu-open #material-codex {
+.menu-open #material-codex,
+.menu-open #material-combiner {
   display: none !important;
 }
 
@@ -480,11 +481,13 @@ body {
   display: none !important;
 }
 
-.material-codex-panel[hidden] {
+.material-codex-panel[hidden],
+.material-combiner-panel[hidden] {
   display: none !important;
 }
 
-.material-codex-panel {
+.material-codex-panel,
+.material-combiner-panel {
   position: fixed;
   inset: max(1rem, env(safe-area-inset-top))
     max(1rem, env(safe-area-inset-right)) max(1rem, env(safe-area-inset-bottom))
@@ -493,6 +496,10 @@ body {
   display: grid;
   place-items: center;
   pointer-events: auto;
+}
+
+.material-combiner-panel {
+  z-index: 8;
 }
 
 .material-codex-card {
@@ -510,7 +517,29 @@ body {
   backdrop-filter: blur(1rem);
 }
 
+.material-combiner-card {
+  display: grid;
+  grid-template-rows: auto auto minmax(0, 1fr) auto;
+  gap: 0.85rem;
+  width: min(94vw, 48rem);
+  max-height: min(86dvh, 38rem);
+  padding: 1.15rem;
+  border: 1px solid rgb(246 215 107 / 28%);
+  border-radius: 1rem;
+  color: #eff8eb;
+  background: rgb(5 16 20 / 95%);
+  box-shadow: 0 1.5rem 5rem rgb(0 0 0 / 58%);
+  backdrop-filter: blur(1rem);
+}
+
 .material-codex-card header {
+  display: flex;
+  align-items: start;
+  justify-content: space-between;
+  gap: 1rem;
+}
+
+.material-combiner-card header {
   display: flex;
   align-items: start;
   justify-content: space-between;
@@ -519,7 +548,10 @@ body {
 
 .material-codex-card h2,
 .material-codex-card h3,
-.material-codex-card h4 {
+.material-codex-card h4,
+.material-combiner-card h2,
+.material-combiner-card h3,
+.material-combiner-card h4 {
   margin: 0;
   color: #c8ff70;
 }
@@ -529,17 +561,21 @@ body {
 }
 
 .material-codex-card header p,
+.material-combiner-card header p,
 .material-codex-count,
 .material-stats-view > p,
-.material-recipe-history p {
+.material-recipe-history p,
+.material-combiner-preview > p {
   margin: 0.25rem 0 0;
   color: #9eb3ba;
   font-size: 0.82rem;
 }
 
 .material-codex-close,
+.material-combiner-close,
 .material-codex-controls input,
-.material-codex-controls select {
+.material-codex-controls select,
+.material-combiner-controls select {
   min-height: 2.55rem;
   border: 1px solid rgb(255 255 255 / 18%);
   border-radius: 0.65rem;
@@ -548,12 +584,17 @@ body {
   font: inherit;
 }
 
-.material-codex-close {
+.material-codex-close,
+.material-combiner-close {
   padding: 0 0.9rem;
   color: #17220f;
   font-weight: 800;
   background: #c8ff70;
   cursor: pointer;
+}
+
+.material-combiner-close {
+  background: #f6d76b;
 }
 
 .material-codex-controls {
@@ -564,7 +605,16 @@ body {
   gap: 0.65rem;
 }
 
-.material-codex-controls label {
+.material-combiner-controls {
+  display: grid;
+  grid-template-columns:
+    minmax(9rem, 1fr) minmax(9rem, 1fr)
+    minmax(8rem, 0.75fr);
+  gap: 0.65rem;
+}
+
+.material-codex-controls label,
+.material-combiner-controls label {
   display: grid;
   gap: 0.28rem;
   color: #adc2ca;
@@ -572,12 +622,14 @@ body {
 }
 
 .material-codex-controls input,
-.material-codex-controls select {
+.material-codex-controls select,
+.material-combiner-controls select {
   width: 100%;
   padding: 0.45rem 0.65rem;
 }
 
-.material-codex-controls select option {
+.material-codex-controls select option,
+.material-combiner-controls select option {
   color: #0a1318;
 }
 
@@ -668,9 +720,108 @@ body {
   background: rgb(255 255 255 / 5%);
 }
 
+.material-combiner-body {
+  min-height: 0;
+  overflow: auto;
+  overscroll-behavior: contain;
+  padding: 0.85rem;
+  border: 1px solid rgb(255 255 255 / 10%);
+  border-radius: 0.8rem;
+  background: rgb(255 255 255 / 5%);
+  -webkit-overflow-scrolling: touch;
+}
+
+.material-combiner-preview {
+  display: grid;
+  gap: 0.75rem;
+}
+
+.material-combiner-preview > .material-stats-view {
+  padding-top: 0.2rem;
+}
+
+.material-combiner-warning,
+.material-combiner-empty {
+  margin: 0;
+  padding: 0.72rem;
+  border: 1px dashed rgb(246 215 107 / 30%);
+  border-radius: 0.65rem;
+  color: #ffe8a4;
+  background: rgb(246 215 107 / 8%);
+}
+
+.material-combiner-actions {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 0.8rem;
+  align-items: center;
+}
+
+.material-combiner-message {
+  min-height: 1.4rem;
+  margin: 0;
+  color: #9eb3ba;
+  font-size: 0.85rem;
+  overflow-wrap: anywhere;
+}
+
+.material-combiner-message.success {
+  color: #c8ff70;
+}
+
+.material-combiner-message.warning {
+  color: #ffe08a;
+}
+
+.material-combiner-actions button {
+  min-height: 2.65rem;
+  padding: 0 1rem;
+  border: 0;
+  border-radius: 0.55rem;
+  color: #17220f;
+  font-weight: 800;
+  background: #f6d76b;
+  cursor: pointer;
+}
+
+.material-combiner-actions button:disabled {
+  opacity: 0.35;
+  cursor: not-allowed;
+}
+
 .material-stats-view {
   display: grid;
   gap: 0.8rem;
+}
+
+.material-visual-summary {
+  display: flex;
+  align-items: center;
+  gap: 0.65rem;
+  min-width: 0;
+}
+
+.material-visual-summary p {
+  margin: 0;
+  color: #d6e9ef;
+  font-size: 0.82rem;
+  overflow-wrap: anywhere;
+}
+
+.material-visual-swatch {
+  width: 3rem;
+  height: 3rem;
+  flex: 0 0 auto;
+  border: 1px solid rgb(255 255 255 / 24%);
+  border-radius: 0.5rem;
+  background:
+    linear-gradient(
+      135deg,
+      var(--material-base-color) 0 58%,
+      var(--material-accent-color) 58% 100%
+    ),
+    var(--material-base-color);
+  box-shadow: inset 0 0 0 1px rgb(0 0 0 / 24%);
 }
 
 .material-stats-grid {
@@ -1363,6 +1514,12 @@ p {
   background: rgb(200 255 112 / 8%);
 }
 
+.recipe.material-combiner-entry,
+.recipe.material-combiner-entry.can-craft {
+  border-color: rgb(246 215 107 / 24%);
+  background: rgb(246 215 107 / 8%);
+}
+
 .recipe.missing-ingredients {
   border-color: rgb(255 255 255 / 10%);
 }
@@ -1393,7 +1550,9 @@ p {
 .inventory-open #controls,
 .inventory-open #crosshair,
 .material-codex-open #controls,
-.material-codex-open #crosshair {
+.material-codex-open #crosshair,
+.material-combiner-open #controls,
+.material-combiner-open #crosshair {
   opacity: 0;
 }
 
@@ -1495,6 +1654,10 @@ body:not(.mobile-game) #mobile-controls {
   display: none;
 }
 
+.material-combiner-open #mobile-controls {
+  display: none;
+}
+
 .mobile-game #status,
 .mobile-game #controls {
   display: none;
@@ -1545,6 +1708,7 @@ body:not(.mobile-game) #mobile-controls {
   }
 
   .material-codex-controls,
+  .material-combiner-controls,
   .material-codex-body {
     grid-template-columns: 1fr;
   }
@@ -1555,6 +1719,16 @@ body:not(.mobile-game) #mobile-controls {
 
   .material-codex-list {
     max-height: 34dvh;
+  }
+
+  .material-combiner-card {
+    width: min(94vw, 34rem);
+    max-height: calc(100dvh - 2rem);
+    padding: 1rem;
+  }
+
+  .material-combiner-actions {
+    grid-template-columns: 1fr;
   }
 
   #inventory-panel {

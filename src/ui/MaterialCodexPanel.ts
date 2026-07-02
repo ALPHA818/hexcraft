@@ -10,7 +10,16 @@ import {
 } from "./MaterialStatsView.ts";
 
 export type MaterialCodexSort =
-  "name" | "generation-asc" | "generation-desc" | "rarity" | "stability";
+  | "name"
+  | "generation"
+  | "generation-asc"
+  | "generation-desc"
+  | "rarity"
+  | "stability"
+  | "hardness"
+  | "magic"
+  | "toxicity"
+  | "radioactivity";
 
 const RARITY_RANK: Record<MaterialRarity, number> = {
   common: 0,
@@ -88,7 +97,7 @@ function compareMaterials(
   if (sort === "generation-asc") {
     return a.generation - b.generation || a.name.localeCompare(b.name);
   }
-  if (sort === "generation-desc") {
+  if (sort === "generation" || sort === "generation-desc") {
     return b.generation - a.generation || a.name.localeCompare(b.name);
   }
   if (sort === "rarity") {
@@ -99,6 +108,18 @@ function compareMaterials(
   }
   if (sort === "stability") {
     return b.stability - a.stability || a.name.localeCompare(b.name);
+  }
+  if (sort === "hardness") {
+    return b.hardness - a.hardness || a.name.localeCompare(b.name);
+  }
+  if (sort === "magic") {
+    return b.magic - a.magic || a.name.localeCompare(b.name);
+  }
+  if (sort === "toxicity") {
+    return b.toxicity - a.toxicity || a.name.localeCompare(b.name);
+  }
+  if (sort === "radioactivity") {
+    return b.radioactivity - a.radioactivity || a.name.localeCompare(b.name);
   }
 
   return a.name.localeCompare(b.name);
@@ -257,10 +278,13 @@ export class MaterialCodexPanel {
     });
     sortSelect.append(
       this.#sortOption("name", "Name"),
-      this.#sortOption("generation-desc", "Newest generation"),
-      this.#sortOption("generation-asc", "Oldest generation"),
+      this.#sortOption("generation", "Generation"),
       this.#sortOption("rarity", "Rarity"),
       this.#sortOption("stability", "Stability"),
+      this.#sortOption("hardness", "Hardness"),
+      this.#sortOption("magic", "Magic"),
+      this.#sortOption("toxicity", "Toxicity"),
+      this.#sortOption("radioactivity", "Radioactivity"),
     );
     sortSelect.value = this.#sort;
     sortSelect.addEventListener("change", () => {
@@ -285,6 +309,7 @@ export class MaterialCodexPanel {
     panel.append(header, controls, body);
 
     this.#root.replaceChildren(panel);
+    this.#root.removeEventListener("keydown", this.#handleKeyDown);
     this.#root.addEventListener("keydown", this.#handleKeyDown);
     this.#listRoot = list;
     this.#detailsRoot = details;

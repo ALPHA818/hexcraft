@@ -32,22 +32,20 @@ describe("debug overlay", () => {
     });
 
     expect(rows).toContainEqual(["FPS", "60"]);
-    expect(rows).toContainEqual(["Frame time", "16.7 ms avg · 18.2 ms last"]);
-    expect(rows).toContainEqual(["Frame range", "12.1-24.4 ms"]);
-    expect(rows).toContainEqual(["Slow frames", "1/60"]);
-    expect(rows).toContainEqual(["Terrain update", "8.6 ms"]);
-    expect(rows).toContainEqual(["Mesh update", "2.1 ms"]);
-    expect(rows).toContainEqual(["Entity update", "0.7 ms"]);
-    expect(rows).toContainEqual(["Audio update", "0.2 ms"]);
+    expect(rows).toContainEqual(["Average frame ms", "16.7"]);
+    expect(rows).toContainEqual(["Worst frame ms", "24.4"]);
+    expect(rows).toContainEqual(["Slow frame count", "1/60"]);
+    expect(rows).toContainEqual(["Terrain update ms", "8.6"]);
+    expect(rows).toContainEqual(["Mesh update ms", "2.1"]);
+    expect(rows).toContainEqual(["Entity update ms", "0.7"]);
+    expect(rows).toContainEqual(["Audio update ms", "0.2"]);
     expect(rows).toContainEqual(["Axial", "q 2, r -3"]);
     expect(rows).toContainEqual(["Biome", "forest"]);
     expect(rows).toContainEqual(["Loaded chunks", "25"]);
     expect(rows).toContainEqual(["Mesh faces", "12,345"]);
-    expect(rows).toContainEqual(["Mesh triangles", "24,690"]);
-    expect(rows).toContainEqual([
-      "Vertices",
-      "74,000 opaque · 900 transparent",
-    ]);
+    expect(rows).toContainEqual(["Triangles", "24,690"]);
+    expect(rows).toContainEqual(["Opaque vertices", "74,000"]);
+    expect(rows).toContainEqual(["Transparent vertices", "900"]);
     expect(rows).toContainEqual(["Renderer", "WebGPU"]);
   });
 });

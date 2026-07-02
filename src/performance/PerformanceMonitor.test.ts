@@ -122,11 +122,9 @@ describe("performance monitor", () => {
     expect(rows).toContainEqual(["Renderer", "WebGPU"]);
     expect(rows).toContainEqual(["Loaded chunks", "25"]);
     expect(rows).toContainEqual(["Mesh faces", "4,000"]);
-    expect(rows).toContainEqual(["Mesh triangles", "8,000"]);
-    expect(rows).toContainEqual([
-      "Vertices",
-      "24,000 opaque · 600 transparent",
-    ]);
-    expect(rows).toContainEqual(["Mesh update", "2.4 ms"]);
+    expect(rows).toContainEqual(["Triangles", "8,000"]);
+    expect(rows).toContainEqual(["Opaque vertices", "24,000"]);
+    expect(rows).toContainEqual(["Transparent vertices", "600"]);
+    expect(rows).toContainEqual(["Mesh update ms", "2.4"]);
   });
 });

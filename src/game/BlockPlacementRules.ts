@@ -147,7 +147,11 @@ export function validateBlockPlacement(
     ? itemDefinitionFor(input.selectedItemId)
     : null;
 
-  if (!block.placeable || selectedItem?.placeable === false) {
+  if (
+    !block.placeable ||
+    (selectedItem?.placeable === false &&
+      material !== TerrainMaterial.DynamicMaterial)
+  ) {
     return fail("non_placeable_item");
   }
 

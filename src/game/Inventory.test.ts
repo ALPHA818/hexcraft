@@ -257,13 +257,38 @@ describe("survival inventory drops", () => {
     expect(inventory.selectedDynamicMaterialId()).toBeNull();
   });
 
-  it("rejects unknown generated material item ids cleanly", () => {
+  it("stores unknown generated material item ids safely", () => {
     stubInventoryDocument();
     const inventory = new Inventory("survival", () => {}, materialRegistry());
+    const itemId = itemIdForMaterial("generated:missing");
 
-    expect(inventory.addItem(itemIdForMaterial("generated:missing"), 1)).toBe(
-      false,
+    expect(inventory.addItem(itemId, 1)).toBe(true);
+    expect(inventory.countItem(itemId)).toBe(1);
+    expect(inventory.exportState().slots).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          itemId,
+          count: 1,
+        }),
+      ]),
     );
+  });
+
+  it("can save and load dynamic material item ids", () => {
+    stubInventoryDocument();
+    const registry = materialRegistry();
+    const source = new Inventory("survival", () => {}, registry);
+    const itemId = itemIdForMaterial("element:iron");
+
+    expect(source.addItem(itemId, 7)).toBe(true);
+
+    const state = source.exportState();
+    const target = new Inventory("survival", () => {}, registry);
+
+    target.importState(state);
+
+    expect(target.exportState()).toEqual(state);
+    expect(target.countItem(itemId)).toBe(7);
   });
 
   it("crafts planks, sticks, and wooden tools from recipes", () => {

@@ -27,6 +27,22 @@ function materialRegistry(): MaterialRegistry {
 }
 
 describe("item stacks", () => {
+  it("round-trips procedural material item ids", () => {
+    for (const materialId of [
+      "element:iron",
+      "element:carbon",
+      "generated:g1:abc123",
+    ]) {
+      const itemId = itemIdForMaterial(materialId);
+
+      expect(itemId).toBe(`generated-material:${materialId}`);
+      expect(materialIdFromItemId(itemId)).toBe(materialId);
+      expect(isGeneratedMaterialItemId(itemId)).toBe(true);
+    }
+    expect(materialIdFromItemId("generated-material:")).toBeNull();
+    expect(isGeneratedMaterialItemId("material:coal")).toBe(false);
+  });
+
   it("creates block and tool stacks", () => {
     const dirt = createItemStack("block:dirt", 8);
     const pickaxe = createItemStack("tool:pickaxe");
@@ -125,9 +141,34 @@ describe("item stacks", () => {
   it("handles unknown generated material item ids cleanly", () => {
     const registry = materialRegistry();
     const itemId = itemIdForMaterial("generated:missing");
+    const stack = createItemStack(itemId, 99, registry);
 
-    expect(itemDefinitionFor(itemId, registry)).toBeNull();
-    expect(normalizeItemStack({ itemId, count: 1 }, registry)).toBeNull();
+    expect(itemDefinitionFor(itemId, registry)).toMatchObject({
+      id: itemId,
+      kind: "generated_material",
+      displayName: "Unknown Material",
+      shortName: "Unknown Material",
+      maxStackSize: 64,
+      placeable: false,
+      materialId: "generated:missing",
+      material: null,
+    });
+    expect(stack).toEqual({ itemId, count: 64 });
+    expect(normalizeItemStack({ itemId, count: 1 }, registry)).toEqual({
+      itemId,
+      count: 1,
+    });
     expect(materialIdFromItemId("material:coal")).toBeNull();
+  });
+
+  it("resolves static block and tool items without a material resolver", () => {
+    expect(itemDefinitionFor("block:dirt")).toMatchObject({
+      kind: "block",
+      displayName: "Dirt",
+    });
+    expect(itemDefinitionFor("tool:pickaxe")).toMatchObject({
+      kind: "tool",
+      displayName: "Wooden Pickaxe",
+    });
   });
 });

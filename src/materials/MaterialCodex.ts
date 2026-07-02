@@ -12,6 +12,10 @@ export class MaterialCodex {
     return this.#registry.allDiscoveredMaterials();
   }
 
+  discoveredMaterialIds(): readonly string[] {
+    return this.#registry.discoveredMaterialIds();
+  }
+
   findById(id: string): MaterialDefinition | null {
     return this.#registry.getMaterialById(id);
   }

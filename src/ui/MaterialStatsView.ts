@@ -3,6 +3,7 @@ import {
   type MaterialDefinition,
   type MaterialStatKey,
 } from "../materials/MaterialTypes.ts";
+import { materialVisualsForMaterial } from "../materials/MaterialVisuals.ts";
 import {
   classifyMaterialCapabilities,
   MATERIAL_CAPABILITY_KEYS,
@@ -55,6 +56,30 @@ export function materialStatRows(
   ]);
 }
 
+export function materialMetadataRows(
+  model: MaterialStatsViewModel,
+): readonly StatRow[] {
+  return [
+    ["ID", model.material.id],
+    ["Name", model.material.name],
+    ["Generation", String(model.material.generation)],
+    [
+      "Parents",
+      model.parentNames.length > 0
+        ? model.parentNames.join(" + ")
+        : "Base material",
+    ],
+    ["Rarity", model.material.rarity],
+    ["Required research tier", model.material.requiredResearchTier ?? "None"],
+    [
+      "Station type",
+      model.material.stationType ??
+        (model.material.generation === 0 ? "Base material" : "Unknown"),
+    ],
+    ["Description", model.material.description ?? "No description."],
+  ] satisfies readonly StatRow[];
+}
+
 export function materialCapabilityRows(
   material: MaterialDefinition,
 ): readonly StatRow[] {
@@ -99,6 +124,7 @@ export class MaterialStatsView {
     const section = document.createElement("section");
     const title = document.createElement("h3");
     const summary = document.createElement("p");
+    const visual = this.#createVisualSummary(model.material);
     const stats = document.createElement("dl");
     const balance = this.#createBalanceDetails(model.material);
     const capabilities = this.#createCapabilityDetails(model.material);
@@ -110,17 +136,9 @@ export class MaterialStatsView {
     summary.textContent = `${model.material.rarity} · generation ${model.material.generation}`;
     stats.className = "material-stats-grid";
 
-    appendDefinitionRow(stats, "ID", model.material.id);
-    appendDefinitionRow(stats, "Name", model.material.name);
-    appendDefinitionRow(stats, "Generation", String(model.material.generation));
-    appendDefinitionRow(
-      stats,
-      "Parents",
-      model.parentNames.length > 0
-        ? model.parentNames.join(" + ")
-        : "Base material",
-    );
-    appendDefinitionRow(stats, "Rarity", model.material.rarity);
+    for (const [label, value] of materialMetadataRows(model)) {
+      appendDefinitionRow(stats, label, value);
+    }
     for (const [label, value] of materialStatRows(model.material)) {
       appendDefinitionRow(stats, label, value);
     }
@@ -134,12 +152,28 @@ export class MaterialStatsView {
     section.append(
       title,
       summary,
+      visual,
       stats,
       balance,
       capabilities,
       tags,
       recipeHistory,
     );
+    return section;
+  }
+
+  #createVisualSummary(material: MaterialDefinition): HTMLElement {
+    const visuals = materialVisualsForMaterial(material);
+    const section = document.createElement("section");
+    const swatch = document.createElement("span");
+    const label = document.createElement("p");
+
+    section.className = "material-visual-summary";
+    swatch.className = "material-visual-swatch";
+    swatch.style.setProperty("--material-base-color", visuals.baseColor);
+    swatch.style.setProperty("--material-accent-color", visuals.accentColor);
+    label.textContent = `Base ${visuals.baseColor} · Accent ${visuals.accentColor}`;
+    section.append(swatch, label);
     return section;
   }
 

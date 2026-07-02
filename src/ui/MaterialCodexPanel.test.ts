@@ -12,6 +12,7 @@ import {
 import {
   materialBalanceRows,
   materialCapabilityRows,
+  materialMetadataRows,
   materialStatRows,
 } from "./MaterialStatsView.ts";
 
@@ -71,11 +72,29 @@ describe("material codex panel helpers", () => {
       registry,
       "",
       "",
-      "generation-desc",
+      "generation",
     );
 
     expect(materials[0]?.generation).toBeGreaterThanOrEqual(
       generated.generation,
+    );
+  });
+
+  it("sorts discovered materials by numeric stats", () => {
+    const { registry } = registryWithDiscovery();
+    const hardnessSorted = discoveredMaterialsForCodex(
+      registry,
+      "",
+      "",
+      "hardness",
+    );
+    const magicSorted = discoveredMaterialsForCodex(registry, "", "", "magic");
+
+    expect(hardnessSorted[0]?.hardness).toBeGreaterThanOrEqual(
+      hardnessSorted[1]?.hardness ?? 0,
+    );
+    expect(magicSorted[0]?.magic).toBeGreaterThanOrEqual(
+      magicSorted[1]?.magic ?? 0,
     );
   });
 
@@ -93,10 +112,20 @@ describe("material codex panel helpers", () => {
   });
 
   it("returns top tags and stat rows for details display", () => {
-    const { registry, iron } = registryWithDiscovery();
+    const { registry, iron, generated } = registryWithDiscovery();
+    const generatedView = materialStatsViewModel(generated, registry);
 
     expect(topMaterialTags(iron)).toHaveLength(3);
     expect(materialCodexTags(registry)).toContain("metal");
+    expect(materialMetadataRows(generatedView)).toEqual(
+      expect.arrayContaining([
+        ["ID", generated.id],
+        ["Name", generated.name],
+        ["Required research tier", generated.requiredResearchTier ?? "None"],
+        ["Station type", generated.stationType ?? "Unknown"],
+        ["Description", generated.description ?? "No description."],
+      ]),
+    );
     expect(materialStatRows(iron).map(([label]) => label)).toContain(
       "Stability",
     );

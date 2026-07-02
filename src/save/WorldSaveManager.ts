@@ -4,14 +4,11 @@ import {
   type MaterialConfig,
 } from "../materials/MaterialConfig.ts";
 import type { SerializedGameTimeState } from "../world/GameTime.ts";
-import {
-  defaultMaterialResearchState,
-  type SerializedMaterialResearch,
-} from "../materials/MaterialResearch.ts";
 import { createSaveDatabase, type WorldSaveDatabase } from "./SaveDatabase.ts";
 import {
   CURRENT_SAVE_VERSION,
   createStartingMaterialCodex,
+  emptyMaterialCodexSave,
   emptyRuntimeStateSave,
   metadataFromSettings,
   runtimeStateWithDefaults,
@@ -32,7 +29,6 @@ export type SaveWorldPayload = Readonly<{
   inventory: SerializedInventory;
   gameTime?: SerializedGameTimeState;
   materialCodex?: SerializedMaterialCodex;
-  materialResearch?: SerializedMaterialResearch;
   terrainEditChunks: readonly Omit<TerrainEditChunkSave, "id" | "worldId">[];
 }>;
 
@@ -60,19 +56,17 @@ function attachWorldIdToChunk(
 }
 
 export function migrateWorldSaveData(save: LoadedWorldSave): LoadedWorldSave {
-  if (!save.runtime.materialCodex) {
-    return {
-      ...save,
-      runtime: runtimeStateWithDefaults(save.metadata.id, save.runtime),
-    };
-  }
+  const migratedSave = {
+    ...save,
+    runtime: runtimeStateWithDefaults(save.metadata.id, save.runtime),
+  };
 
   // Placeholder for future migrations. Version 1 is the initial format.
   if (save.metadata.saveVersion === CURRENT_SAVE_VERSION) {
-    return save;
+    return migratedSave;
   }
 
-  return save;
+  return migratedSave;
 }
 
 export class WorldSaveManager {
@@ -122,10 +116,7 @@ export class WorldSaveManager {
     const runtime = runtimeStateWithDefaults(
       worldId,
       await this.#database.getWorldRuntimeState(worldId),
-      createStartingMaterialCodex(
-        settingsFromMetadata(metadata),
-        this.#materialConfig,
-      ),
+      emptyMaterialCodexSave(),
     );
     const terrainEditChunks =
       await this.#database.getTerrainEditChunks(worldId);
@@ -160,12 +151,6 @@ export class WorldSaveManager {
       gameTime: runtimeStateWithDefaults(metadata.id, {
         gameTime: payload.gameTime,
       }).gameTime,
-      materialResearch: runtimeStateWithDefaults(metadata.id, {
-        materialResearch:
-          payload.materialResearch ??
-          existingRuntime?.materialResearch ??
-          defaultMaterialResearchState(),
-      }).materialResearch,
       materialCodex: runtimeStateWithDefaults(
         metadata.id,
         {

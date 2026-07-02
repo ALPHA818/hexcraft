@@ -10,9 +10,7 @@ import {
 import { MaterialRegistry } from "../materials/MaterialRegistry.ts";
 import {
   MATERIAL_RESEARCH_TIERS,
-  defaultMaterialResearchState,
   normalizeMaterialResearchState,
-  type SerializedMaterialResearch,
 } from "../materials/MaterialResearch.ts";
 import { isMaterialProcessingStationType } from "../materials/MaterialStations.ts";
 import {
@@ -72,14 +70,15 @@ export const MATERIAL_CODEX_SAVE_VERSION = 1;
 
 export const BASIC_STARTING_ELEMENT_IDS = [
   "element:hydrogen",
-  "element:nitrogen",
   "element:oxygen",
-  "element:sodium",
-  "element:aluminium",
+  "element:carbon",
+  "element:nitrogen",
   "element:silicon",
-  "element:phosphorus",
+  "element:iron",
+  "element:copper",
   "element:sulfur",
-  "element:calcium",
+  "element:sodium",
+  "element:chlorine",
 ] as const;
 
 export type SerializedMaterial = Readonly<
@@ -90,25 +89,27 @@ export type SerializedMaterial = Readonly<
     parents: readonly string[];
     rarity: MaterialRarity;
     tags: readonly string[];
-    requiredResearchTier?: MaterialResearchTier;
-    stationType?: MaterialProcessingStationType;
-    discoveredAt?: number;
-    description?: string;
+    requiredResearchTier: MaterialResearchTier | undefined;
+    stationType: MaterialProcessingStationType | undefined;
+    discoveredAt: number | undefined;
+    description: string | undefined;
   } & MaterialStats
 >;
 
 export type SerializedMaterialRecipe = Readonly<{
   recipeKey: string;
-  parentIds: readonly [string, string];
+  parentAId: string;
+  parentBId: string;
   resultMaterialId: string;
-  discoveredAt?: number;
+  stationType: MaterialProcessingStationType;
 }>;
 
 export type SerializedMaterialCodex = Readonly<{
   version: typeof MATERIAL_CODEX_SAVE_VERSION;
-  discoveredBaseMaterialIds: readonly string[];
+  discoveredMaterialIds: readonly string[];
   generatedMaterials: readonly SerializedMaterial[];
-  recipes: readonly SerializedMaterialRecipe[];
+  recipeResults: readonly SerializedMaterialRecipe[];
+  unlockedResearchTiers: readonly MaterialResearchTier[];
 }>;
 
 export type TerrainEditChunkSave = Readonly<{
@@ -126,7 +127,6 @@ export type WorldRuntimeStateSave = Readonly<{
   inventory: SerializedInventory;
   gameTime: SerializedGameTimeState;
   materialCodex: SerializedMaterialCodex;
-  materialResearch: SerializedMaterialResearch;
 }>;
 
 export type LoadedWorldSave = Readonly<{
@@ -230,6 +230,27 @@ function normalizeMaterialResearchTier(
     : undefined;
 }
 
+function normalizeMaterialResearchTiers(
+  values: Iterable<unknown>,
+): readonly MaterialResearchTier[] {
+  return [...values]
+    .map(normalizeMaterialResearchTier)
+    .filter((tier): tier is MaterialResearchTier => tier !== undefined)
+    .filter((tier, index, tiers) => tiers.indexOf(tier) === index)
+    .sort();
+}
+
+function stationTypeFromRecipeKey(
+  recipeKey: string,
+): MaterialProcessingStationType {
+  const stationMatch = /(?:^|\|)station:([^|]+)/.exec(recipeKey);
+  const stationType = stationMatch?.[1];
+
+  return isMaterialProcessingStationType(stationType)
+    ? stationType
+    : "combiner";
+}
+
 function serializedMaterialStatsFrom(
   value: Record<string, unknown>,
   config: Pick<MaterialConfig, "statMin" | "statMax">,
@@ -266,10 +287,8 @@ export function serializeMaterial(
     gas: material.gas,
     liquid: material.liquid,
     tags: [...material.tags],
-    ...(material.requiredResearchTier
-      ? { requiredResearchTier: material.requiredResearchTier }
-      : {}),
-    ...(material.stationType ? { stationType: material.stationType } : {}),
+    requiredResearchTier: material.requiredResearchTier,
+    stationType: material.stationType,
     discoveredAt: material.discoveredAt,
     description: material.description,
   };
@@ -306,16 +325,12 @@ function normalizeSerializedMaterial(
     tags: uniqueSortedStrings(
       Array.isArray(material.tags) ? material.tags : [],
     ),
-    ...(() => {
-      const requiredResearchTier = normalizeMaterialResearchTier(
-        material.requiredResearchTier,
-      );
-
-      return requiredResearchTier ? { requiredResearchTier } : {};
-    })(),
-    ...(isMaterialProcessingStationType(material.stationType)
-      ? { stationType: material.stationType }
-      : {}),
+    requiredResearchTier: normalizeMaterialResearchTier(
+      material.requiredResearchTier,
+    ),
+    stationType: isMaterialProcessingStationType(material.stationType)
+      ? material.stationType
+      : undefined,
     discoveredAt:
       typeof material.discoveredAt === "number" &&
       Number.isFinite(material.discoveredAt)
@@ -340,27 +355,36 @@ function normalizeSerializedMaterialRecipe(
     typeof recipe.recipeKey === "string" ? recipe.recipeKey : "";
   const resultMaterialId =
     typeof recipe.resultMaterialId === "string" ? recipe.resultMaterialId : "";
-  const parentIds = uniqueStringsInOrder(
+  const legacyParentIds = uniqueStringsInOrder(
     Array.isArray(recipe.parentIds) ? recipe.parentIds : [],
   );
+  const parentAId =
+    typeof recipe.parentAId === "string"
+      ? recipe.parentAId
+      : (legacyParentIds[0] ?? "");
+  const parentBId =
+    typeof recipe.parentBId === "string"
+      ? recipe.parentBId
+      : (legacyParentIds[1] ?? "");
+  const stationType = isMaterialProcessingStationType(recipe.stationType)
+    ? recipe.stationType
+    : stationTypeFromRecipeKey(recipeKey);
 
   if (
     recipeKey.trim() === "" ||
     resultMaterialId.trim() === "" ||
-    parentIds.length < 2
+    parentAId.trim() === "" ||
+    parentBId.trim() === ""
   ) {
     return null;
   }
 
   return {
     recipeKey,
-    parentIds: [parentIds[0]!, parentIds[1]!],
+    parentAId,
+    parentBId,
     resultMaterialId,
-    discoveredAt:
-      typeof recipe.discoveredAt === "number" &&
-      Number.isFinite(recipe.discoveredAt)
-        ? recipe.discoveredAt
-        : undefined,
+    stationType,
   };
 }
 
@@ -375,13 +399,17 @@ function validBaseElementIds(ids: readonly string[]): readonly string[] {
 }
 
 export function emptyMaterialCodexSave(
-  discoveredBaseMaterialIds: readonly string[] = allBaseElementIds(),
+  discoveredMaterialIds: readonly string[] = allBaseElementIds(),
+  unlockedResearchTiers: readonly MaterialResearchTier[] = [],
 ): SerializedMaterialCodex {
   return {
     version: MATERIAL_CODEX_SAVE_VERSION,
-    discoveredBaseMaterialIds: validBaseElementIds(discoveredBaseMaterialIds),
+    discoveredMaterialIds: validBaseElementIds(discoveredMaterialIds),
     generatedMaterials: [],
-    recipes: [],
+    recipeResults: [],
+    unlockedResearchTiers: normalizeMaterialResearchTiers(
+      unlockedResearchTiers,
+    ),
   };
 }
 
@@ -416,50 +444,75 @@ export function normalizeSerializedMaterialCodex(
     .map((material) => normalizeSerializedMaterial(material, normalizedConfig))
     .filter((material): material is SerializedMaterial => material !== null)
     .sort((a, b) => a.generation - b.generation || a.id.localeCompare(b.id));
-  const recipes = (Array.isArray(codex.recipes) ? codex.recipes : [])
+  const recipeResults = (
+    Array.isArray(codex.recipeResults)
+      ? codex.recipeResults
+      : Array.isArray(codex.recipes)
+        ? codex.recipes
+        : []
+  )
     .map(normalizeSerializedMaterialRecipe)
     .filter((recipe): recipe is SerializedMaterialRecipe => recipe !== null)
     .sort((a, b) => a.recipeKey.localeCompare(b.recipeKey));
-  const discoveredBaseMaterialIds = validBaseElementIds(
+  const generatedMaterialIds = new Set(
+    generatedMaterials.map((material) => material.id),
+  );
+  const knownMaterialIds = new Set([
+    ...allBaseElementIds(),
+    ...generatedMaterialIds,
+  ]);
+  const discoveredMaterialIdSet = new Set(
     uniqueSortedStrings(
-      Array.isArray(codex.discoveredBaseMaterialIds)
-        ? codex.discoveredBaseMaterialIds
-        : [],
-    ),
+      Array.isArray(codex.discoveredMaterialIds)
+        ? codex.discoveredMaterialIds
+        : Array.isArray(codex.discoveredBaseMaterialIds)
+          ? codex.discoveredBaseMaterialIds
+          : [],
+    ).filter((id) => knownMaterialIds.has(id)),
+  );
+  for (const material of generatedMaterials) {
+    if (material.discoveredAt !== undefined) {
+      discoveredMaterialIdSet.add(material.id);
+    }
+  }
+  const discoveredMaterialIds = [...discoveredMaterialIdSet].sort();
+  const unlockedResearchTiers = normalizeMaterialResearchTiers(
+    Array.isArray(codex.unlockedResearchTiers)
+      ? codex.unlockedResearchTiers
+      : [],
   );
 
   return {
     version: MATERIAL_CODEX_SAVE_VERSION,
-    discoveredBaseMaterialIds:
-      discoveredBaseMaterialIds.length > 0
-        ? discoveredBaseMaterialIds
-        : emptyMaterialCodexSave().discoveredBaseMaterialIds,
+    discoveredMaterialIds:
+      discoveredMaterialIds.length > 0
+        ? discoveredMaterialIds
+        : emptyMaterialCodexSave().discoveredMaterialIds,
     generatedMaterials,
-    recipes,
+    recipeResults,
+    unlockedResearchTiers,
   };
 }
 
 export function serializeMaterialCodex(
   registry: MaterialRegistry,
+  unlockedResearchTiers: readonly MaterialResearchTier[] = [],
 ): SerializedMaterialCodex {
-  const discoveredMaterials = registry.allDiscoveredMaterials();
+  const materials = registry.allMaterials();
   const generatedMaterialIds = new Set(
-    discoveredMaterials
+    materials
       .filter((material) => material.generation > 0)
       .map((material) => material.id),
   );
 
   return {
     version: MATERIAL_CODEX_SAVE_VERSION,
-    discoveredBaseMaterialIds: discoveredMaterials
-      .filter((material) => material.generation === 0)
-      .map((material) => material.id)
-      .sort(),
-    generatedMaterials: discoveredMaterials
+    discoveredMaterialIds: registry.discoveredMaterialIds(),
+    generatedMaterials: materials
       .filter((material) => material.generation > 0)
       .map(serializeMaterial)
       .sort((a, b) => a.generation - b.generation || a.id.localeCompare(b.id)),
-    recipes: registry
+    recipeResults: registry
       .allRecipeResults()
       .map((recipe): SerializedMaterialRecipe | null => {
         const result = registry.getMaterialById(recipe.resultMaterialId);
@@ -476,13 +529,18 @@ export function serializeMaterialCodex(
 
         return {
           recipeKey: recipe.recipeKey,
-          parentIds: [parentIds[0]!, parentIds[1]!],
+          parentAId: parentIds[0]!,
+          parentBId: parentIds[1]!,
           resultMaterialId: recipe.resultMaterialId,
-          discoveredAt: result.discoveredAt,
+          stationType:
+            result.stationType ?? stationTypeFromRecipeKey(recipe.recipeKey),
         };
       })
       .filter((recipe): recipe is SerializedMaterialRecipe => recipe !== null)
       .sort((a, b) => a.recipeKey.localeCompare(b.recipeKey)),
+    unlockedResearchTiers: normalizeMaterialResearchTiers(
+      unlockedResearchTiers,
+    ),
   };
 }
 
@@ -496,16 +554,31 @@ export function materialRegistryFromSerializedCodex(
     materialCodex,
     normalizedConfig,
   );
+  const discoveredMaterialIds = new Set(normalizedCodex.discoveredMaterialIds);
 
   registry.registerBaseMaterials(
     BASE_ELEMENT_MATERIALS,
-    normalizedCodex.discoveredBaseMaterialIds,
+    validBaseElementIds(normalizedCodex.discoveredMaterialIds),
   );
   for (const material of normalizedCodex.generatedMaterials) {
+    if (!material.parents.every((parentId) => registry.hasMaterial(parentId))) {
+      continue;
+    }
+
     registry.registerGeneratedMaterial(material);
+    if (
+      discoveredMaterialIds.has(material.id) &&
+      material.discoveredAt === undefined
+    ) {
+      registry.discoverMaterial(material.id);
+    }
   }
-  for (const recipe of normalizedCodex.recipes) {
-    if (registry.hasMaterial(recipe.resultMaterialId)) {
+  for (const recipe of normalizedCodex.recipeResults) {
+    if (
+      registry.hasMaterial(recipe.parentAId) &&
+      registry.hasMaterial(recipe.parentBId) &&
+      registry.hasMaterial(recipe.resultMaterialId)
+    ) {
       registry.storeRecipeResult(recipe.recipeKey, recipe.resultMaterialId);
     }
   }
@@ -523,7 +596,26 @@ export function emptyRuntimeStateSave(
     inventory: emptyInventorySave(),
     gameTime: defaultSerializedGameTimeState(),
     materialCodex,
-    materialResearch: defaultMaterialResearchState(),
+  };
+}
+
+function materialCodexWithLegacyResearchTiers(
+  codex: SerializedMaterialCodex,
+  legacyResearch: unknown,
+): SerializedMaterialCodex {
+  const legacyTiers =
+    normalizeMaterialResearchState(legacyResearch).unlockedTiers;
+
+  if (legacyTiers.length === 0) {
+    return codex;
+  }
+
+  return {
+    ...codex,
+    unlockedResearchTiers: normalizeMaterialResearchTiers([
+      ...codex.unlockedResearchTiers,
+      ...legacyTiers,
+    ]),
   };
 }
 
@@ -532,6 +624,11 @@ export function runtimeStateWithDefaults(
   state: Partial<WorldRuntimeStateSave> | null | undefined,
   defaultMaterialCodex: SerializedMaterialCodex = emptyMaterialCodexSave(),
 ): WorldRuntimeStateSave {
+  const materialCodex = normalizeSerializedMaterialCodex(
+    (state as { materialCodex?: unknown } | null | undefined)?.materialCodex ??
+      defaultMaterialCodex,
+  );
+
   return {
     worldId,
     player: state?.player ?? { position: null },
@@ -539,11 +636,8 @@ export function runtimeStateWithDefaults(
     gameTime: normalizeSerializedGameTimeState(
       (state as { gameTime?: unknown } | null | undefined)?.gameTime,
     ),
-    materialCodex: normalizeSerializedMaterialCodex(
-      (state as { materialCodex?: unknown } | null | undefined)
-        ?.materialCodex ?? defaultMaterialCodex,
-    ),
-    materialResearch: normalizeMaterialResearchState(
+    materialCodex: materialCodexWithLegacyResearchTiers(
+      materialCodex,
       (state as { materialResearch?: unknown } | null | undefined)
         ?.materialResearch,
     ),

@@ -11,7 +11,7 @@ export type WorldSaveDatabase = Readonly<{
   deleteWorld: (worldId: string) => Promise<void>;
   getWorldRuntimeState: (
     worldId: string,
-  ) => Promise<WorldRuntimeStateSave | null>;
+  ) => Promise<Partial<WorldRuntimeStateSave> | null>;
   putWorldRuntimeState: (state: WorldRuntimeStateSave) => Promise<void>;
   getTerrainEditChunks: (worldId: string) => Promise<TerrainEditChunkSave[]>;
   replaceTerrainEditChunks: (
@@ -108,12 +108,12 @@ export class IndexedDbSaveDatabase implements WorldSaveDatabase {
 
   async getWorldRuntimeState(
     worldId: string,
-  ): Promise<WorldRuntimeStateSave | null> {
+  ): Promise<Partial<WorldRuntimeStateSave> | null> {
     const database = await this.#open();
     const transaction = database.transaction(RUNTIME_STORE, "readonly");
-    const state = await requestResult<WorldRuntimeStateSave | undefined>(
-      transaction.objectStore(RUNTIME_STORE).get(worldId),
-    );
+    const state = await requestResult<
+      Partial<WorldRuntimeStateSave> | undefined
+    >(transaction.objectStore(RUNTIME_STORE).get(worldId));
 
     return state ?? null;
   }
@@ -220,7 +220,7 @@ export class MemorySaveDatabase implements WorldSaveDatabase {
 
   async getWorldRuntimeState(
     worldId: string,
-  ): Promise<WorldRuntimeStateSave | null> {
+  ): Promise<Partial<WorldRuntimeStateSave> | null> {
     return this.#runtime.get(worldId) ?? null;
   }
 

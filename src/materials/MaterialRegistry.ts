@@ -71,6 +71,24 @@ export class MaterialRegistry {
     );
   }
 
+  discoveredMaterialIds(): readonly string[] {
+    return this.allDiscoveredMaterials()
+      .map((material) => material.id)
+      .sort();
+  }
+
+  hasDiscoveredMaterial(materialId: string): boolean {
+    const material = this.getMaterialById(materialId);
+
+    if (!material) {
+      return false;
+    }
+
+    return material.generation === 0
+      ? this.#discoveredBaseMaterialIds.has(material.id)
+      : material.discoveredAt !== undefined;
+  }
+
   discoverBaseMaterial(materialId: string): boolean {
     const material = this.getMaterialById(materialId);
 
@@ -83,6 +101,30 @@ export class MaterialRegistry {
     }
 
     this.#discoveredBaseMaterialIds.add(material.id);
+    return true;
+  }
+
+  discoverMaterial(materialId: string, discoveredAt = 0): boolean {
+    const material = this.getMaterialById(materialId);
+
+    if (!material || this.hasDiscoveredMaterial(material.id)) {
+      return false;
+    }
+    if (material.generation === 0) {
+      this.#discoveredBaseMaterialIds.add(material.id);
+      return true;
+    }
+
+    const discoveredMaterial = {
+      ...material,
+      discoveredAt,
+    };
+
+    this.#materialsById.set(discoveredMaterial.id, discoveredMaterial);
+    this.#materialsByName.set(
+      discoveredMaterial.name.toLowerCase(),
+      discoveredMaterial,
+    );
     return true;
   }
 

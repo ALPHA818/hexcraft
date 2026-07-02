@@ -2,8 +2,8 @@ import {
   itemDefinitionFor,
   itemDefinitionOrThrow,
   type ItemId,
-  type MaterialItemResolver,
 } from "./ItemRegistry.ts";
+import type { MaterialItemResolver } from "./MaterialItemResolver.ts";
 
 export type SerializedItemStack = Readonly<{
   itemId: string;

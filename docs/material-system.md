@@ -156,20 +156,21 @@ Mining and exploration can discover one trace per event at most. `materialTraceD
 
 Save/load owns persistence.
 
-`serializeMaterialCodex(registry)` writes:
+`serializeMaterialCodex(registry, unlockedResearchTiers)` writes:
 
-- discovered base material ids
+- discovered material ids
 - generated materials
-- recipe result history
+- recipe result history with parent ids and station type
+- unlocked research tiers
 
 `materialRegistryFromSerializedCodex(...)` restores:
 
 - base materials
-- discovered base ids
+- discovered material ids
 - generated material definitions
 - stored recipe keys
 
-`WorldSaveManager` also persists material research state. Old saves without material codex or research state load with defaults.
+`WorldSaveManager` persists the material codex inside the existing world runtime save state. Base elements are loaded from code, while generated materials, discoveries, recipe results, and research tiers are saved per world. Old saves without a material codex load with defaults, and old saves with separate material research are migrated into `materialCodex.unlockedResearchTiers`.
 
 Do not persist computed values such as visuals, capabilities, value score, danger score, or usefulness score. Recompute them from saved material definitions.
 
