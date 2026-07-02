@@ -21,6 +21,25 @@ export type MaterialCodexSort =
   | "toxicity"
   | "radioactivity";
 
+export type MaterialCodexDebugActionResult = Readonly<{
+  ok: boolean;
+  message: string;
+}>;
+
+export type MaterialCodexDebugActions = Readonly<{
+  isVisible: () => boolean;
+  giveMaterial: (
+    materialId: string,
+    count?: number,
+  ) => MaterialCodexDebugActionResult;
+  giveCommonStarterElements: (count?: number) => MaterialCodexDebugActionResult;
+}>;
+
+type MaterialCodexDebugMessage = Readonly<{
+  tone: "success" | "warning";
+  text: string;
+}>;
+
 const RARITY_RANK: Record<MaterialRarity, number> = {
   common: 0,
   uncommon: 1,
@@ -167,6 +186,8 @@ export class MaterialCodexPanel {
   #tag = "";
   #sort: MaterialCodexSort = "name";
   #selectedMaterialId: string | null = null;
+  #debugActions: MaterialCodexDebugActions | null = null;
+  #debugMessage: MaterialCodexDebugMessage | null = null;
   #listRoot: HTMLElement | null = null;
   #detailsRoot: HTMLElement | null = null;
   #countRoot: HTMLElement | null = null;
@@ -191,10 +212,20 @@ export class MaterialCodexPanel {
   setRegistry(registry: MaterialRegistry | null): void {
     this.#registry = registry;
     this.#selectedMaterialId = null;
+    this.#debugMessage = null;
 
     if (this.isOpen()) {
       this.#renderShell();
       this.#renderMaterials();
+    }
+  }
+
+  setDebugActions(actions: MaterialCodexDebugActions | null): void {
+    this.#debugActions = actions;
+    this.#debugMessage = null;
+
+    if (this.isOpen()) {
+      this.#renderDetails();
     }
   }
 
@@ -220,6 +251,7 @@ export class MaterialCodexPanel {
     this.#countRoot = null;
     this.#searchInput = null;
     this.#tagSelect = null;
+    this.#debugMessage = null;
     this.#onOpenChange(false);
   }
 
@@ -422,6 +454,9 @@ export class MaterialCodexPanel {
 
     detailsRoot.replaceChildren(
       this.#statsView.render(materialStatsViewModel(material, registry)),
+      ...(this.#debugActions?.isVisible()
+        ? [this.#createDebugActions(material)]
+        : []),
     );
   }
 
@@ -450,9 +485,65 @@ export class MaterialCodexPanel {
     row.append(main, tags);
     row.addEventListener("click", () => {
       this.#selectedMaterialId = material.id;
+      this.#debugMessage = null;
       this.#renderMaterials();
     });
     return row;
+  }
+
+  #createDebugActions(material: MaterialDefinition): HTMLElement {
+    const actions = this.#debugActions;
+    const section = document.createElement("section");
+    const title = document.createElement("h4");
+    const buttons = document.createElement("div");
+    const addSelected = document.createElement("button");
+    const addStarter = document.createElement("button");
+
+    section.className = "material-codex-debug-actions";
+    title.textContent = "Creative testing";
+    buttons.className = "material-codex-debug-buttons";
+    addSelected.type = "button";
+    addSelected.textContent = "Add selected material to inventory";
+    addSelected.disabled = !actions;
+    addSelected.addEventListener("click", () => {
+      const result = actions?.giveMaterial(material.id, 1) ?? {
+        ok: false,
+        message: "Material testing kit is unavailable.",
+      };
+
+      this.#debugMessage = {
+        tone: result.ok ? "success" : "warning",
+        text: result.message,
+      };
+      this.#renderDetails();
+    });
+    addStarter.type = "button";
+    addStarter.textContent = "Add common starter elements";
+    addStarter.disabled = !actions;
+    addStarter.addEventListener("click", () => {
+      const result = actions?.giveCommonStarterElements(1) ?? {
+        ok: false,
+        message: "Material testing kit is unavailable.",
+      };
+
+      this.#debugMessage = {
+        tone: result.ok ? "success" : "warning",
+        text: result.message,
+      };
+      this.#renderDetails();
+    });
+    buttons.append(addSelected, addStarter);
+    section.append(title, buttons);
+
+    if (this.#debugMessage) {
+      const message = document.createElement("p");
+
+      message.className = `material-codex-debug-message ${this.#debugMessage.tone}`;
+      message.textContent = this.#debugMessage.text;
+      section.append(message);
+    }
+
+    return section;
   }
 
   #emptyMessage(message: string): HTMLElement {

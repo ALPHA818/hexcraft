@@ -1,7 +1,11 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { TerrainMaterial } from "../geometry/terrainChunk.ts";
-import { itemIdForMaterial } from "../items/ItemRegistry.ts";
+import {
+  itemIdForMaterial,
+  modifiedToolItemId,
+  modifiedToolRecipeId,
+} from "../items/ItemRegistry.ts";
 import { createItemStack } from "../items/ItemStack.ts";
 import { combineMaterials } from "../materials/MaterialCombiner.ts";
 import { MaterialRegistry } from "../materials/MaterialRegistry.ts";
@@ -224,6 +228,42 @@ describe("survival inventory drops", () => {
         .slots?.filter((slot) => slot?.itemId === itemId)
         .map((slot) => slot?.count),
     ).toEqual([64, 1]);
+  });
+
+  it("can visibly grant generated material items in creative mode", () => {
+    stubInventoryDocument();
+    const registry = materialRegistry();
+    const material = generatedMaterial("generated:creative-grant", 82);
+
+    registry.registerGeneratedMaterial(material);
+    const inventory = new Inventory("creative", () => {}, registry);
+    const itemId = itemIdForMaterial(material.id);
+
+    expect(inventory.grantItem(itemId, 1)).toBe(true);
+    expect(inventory.selectedItemId()).toBe(itemId);
+  });
+
+  it("assembles modified tools from a base tool and material item", () => {
+    stubInventoryDocument();
+    const registry = materialRegistry();
+    const inventory = new Inventory("survival", () => {}, registry);
+    const materialItemId = itemIdForMaterial("element:iron");
+    const modifiedToolId = modifiedToolItemId("tool:pickaxe", "element:iron");
+
+    expect(inventory.addItem(materialItemId, 1)).toBe(true);
+    expect(
+      inventory.craftRecipe(
+        modifiedToolRecipeId("tool:pickaxe", "element:iron"),
+      ),
+    ).toBe(true);
+    expect(inventory.countItem("tool:pickaxe")).toBe(0);
+    expect(inventory.countItem(materialItemId)).toBe(0);
+    expect(inventory.countItem(modifiedToolId)).toBe(1);
+    expect(
+      inventory
+        .exportState()
+        .slots?.some((slot) => slot?.itemId === modifiedToolId),
+    ).toBe(true);
   });
 
   it("treats stabilized generated material items as placeable dynamic blocks", () => {

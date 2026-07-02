@@ -11,7 +11,10 @@ import { createItemStack, damageToolStack } from "./ItemStack.ts";
 import {
   equippedToolForItem,
   itemDefinitionFor,
+  materialIdFromModifiedToolItemId,
   modifiedToolItemId,
+  modifiedToolPartsFromItemId,
+  modifiedToolRecipeId,
   type ToolItemDefinition,
 } from "./ItemRegistry.ts";
 import { modifiedToolStatsForMaterial } from "./MaterialToolModifier.ts";
@@ -76,6 +79,22 @@ function basePickaxe(): ToolItemDefinition {
 }
 
 describe("material tool modifiers", () => {
+  it("parses modified tool ids with colon-heavy material ids", () => {
+    const itemId = modifiedToolItemId("tool:pickaxe", "generated:g1:abc123");
+
+    expect(itemId).toBe("modified-tool:tool:pickaxe:generated:g1:abc123");
+    expect(modifiedToolPartsFromItemId(itemId)).toEqual({
+      baseToolId: "tool:pickaxe",
+      materialId: "generated:g1:abc123",
+    });
+    expect(materialIdFromModifiedToolItemId(itemId)).toBe(
+      "generated:g1:abc123",
+    );
+    expect(modifiedToolRecipeId("tool:axe", "element:iron")).toBe(
+      "assembler:tool:axe:element:iron",
+    );
+  });
+
   it("resolves modified tool display names", () => {
     const embersteel = testMaterial("embersteel", "Embersteel", {
       hardness: 82,
@@ -127,6 +146,24 @@ describe("material tool modifiers", () => {
     ).toBeGreaterThan(modifiedToolStatsForMaterial(base, soft).maxDurability);
   });
 
+  it("hard material improves mining speed", () => {
+    const soft = testMaterial("speed-soft", "Softmatter", {
+      hardness: 8,
+      density: 12,
+    });
+    const hard = testMaterial("speed-hard", "Hardstone", {
+      hardness: 92,
+      density: 80,
+    });
+    const base = basePickaxe();
+
+    expect(
+      modifiedToolStatsForMaterial(base, hard).tool.speedMultiplier,
+    ).toBeGreaterThan(
+      modifiedToolStatsForMaterial(base, soft).tool.speedMultiplier,
+    );
+  });
+
   it("metal material improves durability", () => {
     const ceramic = testMaterial("ceramic", "Ceramic", {
       hardness: 55,
@@ -167,6 +204,29 @@ describe("material tool modifiers", () => {
       stableStats.modifier.instabilityRisk,
     );
     expect(unstableStats.maxDurability).toBeLessThan(stableStats.maxDurability);
+  });
+
+  it("marks magic and dangerous material traits for future effects", () => {
+    const arcanite = testMaterial("focus", "Arcanite Crystal", {
+      crystal: 92,
+      magic: 90,
+      stability: 82,
+    });
+    const toxicMetal = testMaterial("danger", "Hot Radium", {
+      metal: 80,
+      radioactivity: 90,
+      toxicity: 70,
+      stability: 42,
+    });
+    const focusStats = modifiedToolStatsForMaterial(basePickaxe(), arcanite);
+    const dangerStats = modifiedToolStatsForMaterial(basePickaxe(), toxicMetal);
+
+    expect(focusStats.modifier.enchantPotential).toBeGreaterThan(0);
+    expect(focusStats.tool.enchantPotential).toBe(
+      focusStats.modifier.enchantPotential,
+    );
+    expect(dangerStats.modifier.dangerous).toBe(true);
+    expect(dangerStats.tool.dangerous).toBe(true);
   });
 
   it("modified tools affect mining speed and use modified durability", () => {

@@ -14,7 +14,11 @@ import {
   type VoxelRaycastHit,
   worldToAxial,
 } from "../world/InfiniteTerrain.ts";
-import { blockDefinitionFor } from "../world/blocks.ts";
+import {
+  blockDefinitionFor,
+  materialProcessingStationTypeForBlock,
+} from "../world/blocks.ts";
+import type { MaterialProcessingStationType } from "../materials/MaterialTypes.ts";
 import type { GameMode } from "./gameMode.ts";
 
 export const BLOCK_PLACEMENT_REACH = 6;
@@ -64,6 +68,25 @@ export type BlockPlacementFailure = Readonly<{
 export type BlockPlacementResult =
   BlockPlacementSuccess | BlockPlacementFailure;
 
+export type MaterialStationInteractionInput = Readonly<{
+  target: Pick<VoxelRaycastHit, "voxel" | "material" | "distance"> | null;
+  maximumReach?: number;
+}>;
+
+export type MaterialStationInteractionSuccess = Readonly<{
+  ok: true;
+  stationType: MaterialProcessingStationType;
+  position: VoxelPosition;
+}>;
+
+export type MaterialStationInteractionFailure = Readonly<{
+  ok: false;
+  reason: "missing_target" | "out_of_reach" | "not_station";
+}>;
+
+export type MaterialStationInteractionResult =
+  MaterialStationInteractionSuccess | MaterialStationInteractionFailure;
+
 const FAILURE_MESSAGES: Record<BlockPlacementFailureReason, string> = {
   missing_target: "Aim at a block first.",
   out_of_reach: "Too far away.",
@@ -80,6 +103,32 @@ function fail(reason: BlockPlacementFailureReason): BlockPlacementFailure {
     ok: false,
     reason,
     message: FAILURE_MESSAGES[reason],
+  };
+}
+
+export function validateMaterialStationInteraction(
+  input: MaterialStationInteractionInput,
+): MaterialStationInteractionResult {
+  if (!input.target) {
+    return { ok: false, reason: "missing_target" };
+  }
+
+  if (input.target.distance > (input.maximumReach ?? BLOCK_PLACEMENT_REACH)) {
+    return { ok: false, reason: "out_of_reach" };
+  }
+
+  const stationType = materialProcessingStationTypeForBlock(
+    input.target.material,
+  );
+
+  if (!stationType) {
+    return { ok: false, reason: "not_station" };
+  }
+
+  return {
+    ok: true,
+    stationType,
+    position: input.target.voxel,
   };
 }
 

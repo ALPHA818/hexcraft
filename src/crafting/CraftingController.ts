@@ -9,8 +9,11 @@ export type CraftingInventory = Readonly<{
   isCreative: () => boolean;
   countItem: (itemId: ItemId) => number;
   addItem: (itemId: ItemId, count: number) => boolean;
+  grantItem?: (itemId: ItemId, count: number) => boolean;
   removeItem: (itemId: ItemId, count: number) => boolean;
 }>;
+
+export type DynamicRecipeProvider = () => readonly Recipe[];
 
 function stackLabel(stack: RecipeStack): string {
   return `${stack.count}× ${stack.itemId}`;
@@ -29,21 +32,24 @@ export function recipeSummary(recipe: Recipe): string {
 export class CraftingController {
   readonly #inventory: CraftingInventory;
   readonly #recipes: readonly Recipe[];
+  readonly #dynamicRecipes: DynamicRecipeProvider;
 
   constructor(
     inventory: CraftingInventory,
     recipes: readonly Recipe[] = registryRecipesForStation("inventory"),
+    dynamicRecipes: DynamicRecipeProvider = () => [],
   ) {
     this.#inventory = inventory;
     this.#recipes = recipes;
+    this.#dynamicRecipes = dynamicRecipes;
   }
 
   recipesForStation(station: CraftingStation): readonly Recipe[] {
-    return this.#recipes.filter((recipe) => recipe.station === station);
+    return this.#allRecipes().filter((recipe) => recipe.station === station);
   }
 
   recipeById(recipeId: string): Recipe | null {
-    return this.#recipes.find((recipe) => recipe.id === recipeId) ?? null;
+    return this.#allRecipes().find((recipe) => recipe.id === recipeId) ?? null;
   }
 
   canCraft(recipe: Recipe): boolean {
@@ -78,12 +84,21 @@ export class CraftingController {
       }
     }
 
+    const addOutput =
+      this.#inventory.isCreative() && recipe.station === "assembler"
+        ? (this.#inventory.grantItem ?? this.#inventory.addItem)
+        : this.#inventory.addItem;
+
     for (const output of recipe.outputs) {
-      if (!this.#inventory.addItem(output.itemId, output.count)) {
+      if (!addOutput(output.itemId, output.count)) {
         return false;
       }
     }
 
     return true;
+  }
+
+  #allRecipes(): readonly Recipe[] {
+    return [...this.#recipes, ...this.#dynamicRecipes()];
   }
 }

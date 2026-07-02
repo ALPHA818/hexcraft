@@ -15,6 +15,7 @@ import type {
   MaterialStats,
 } from "../materials/MaterialTypes.ts";
 import {
+  materialCombinerStationOptions,
   materialCombinerKnownResultLabel,
   materialOptionsForCombiner,
 } from "./MaterialCombinerPanel.ts";
@@ -189,6 +190,46 @@ function firstUnstableFailureSeed(): number {
 }
 
 describe("material combiner gameplay", () => {
+  it("keeps free combiner opening on the basic combiner", () => {
+    expect(
+      materialCombinerStationOptions("combiner", false).find(
+        (option) => option.stationType === "combiner",
+      ),
+    ).toEqual({
+      stationType: "combiner",
+      label: "Combiner",
+      disabled: false,
+    });
+    expect(
+      materialCombinerStationOptions("combiner", false).find(
+        (option) => option.stationType === "forge",
+      ),
+    ).toMatchObject({
+      stationType: "forge",
+      disabled: true,
+    });
+  });
+
+  it("uses the placed station type when opened from a station block", () => {
+    const forgeOption = materialCombinerStationOptions("forge", true).find(
+      (option) => option.stationType === "forge",
+    );
+
+    expect(forgeOption).toEqual({
+      stationType: "forge",
+      label: "Forge",
+      disabled: false,
+    });
+    expect(
+      materialCombinerStationOptions("forge", true).find(
+        (option) => option.stationType === "combiner",
+      ),
+    ).toMatchObject({
+      stationType: "combiner",
+      disabled: true,
+    });
+  });
+
   it("combines two known materials", () => {
     const { materialWorld, dust, clay } = stablePairWorld();
     const controller = discoveryController(

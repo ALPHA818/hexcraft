@@ -22,6 +22,7 @@ import {
   type BlockDefinition,
   type BlockId,
 } from "../world/blocks.ts";
+import { dynamicMaterialBlockPlacement } from "../world/DynamicMaterialBlocks.ts";
 import {
   HAND_TOOL,
   type EquippedTool,
@@ -33,6 +34,7 @@ export {
   isModifiedToolItemId,
   materialIdFromModifiedToolItemId,
   modifiedToolItemId,
+  modifiedToolRecipeId,
   modifiedToolPartsFromItemId,
 } from "./ModifiedToolTypes.ts";
 export {
@@ -348,7 +350,7 @@ export function placeableMaterialForItem(
     item.material &&
     isStabilizedPlaceableMaterial(item.material)
   ) {
-    return TerrainMaterial.DynamicMaterial;
+    return dynamicMaterialBlockPlacement(item.material.id)?.material ?? null;
   }
 
   return item?.kind === "block" && item.placeable ? item.material : null;

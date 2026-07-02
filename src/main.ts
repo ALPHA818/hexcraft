@@ -19,6 +19,11 @@ import { PlayerStats } from "./game/PlayerStats.ts";
 import { SurvivalStatsController } from "./game/SurvivalStatsController.ts";
 import { SurvivalController } from "./game/SurvivalController.ts";
 import {
+  canUseMaterialTestingKit,
+  MaterialTestingKit,
+  type MaterialGiveResult,
+} from "./game/MaterialTestingKit.ts";
+import {
   FirstPersonCamera,
   PLAYER_EYE_HEIGHT,
 } from "./input/FirstPersonCamera.ts";
@@ -64,6 +69,7 @@ type ActiveGame = Readonly<{
   entityRenderer: EntityRenderer;
   inventory: Inventory;
   materialWorld: MaterialWorldController;
+  materialTestingKit: MaterialTestingKit;
   gameTime: GameTime;
   survival: SurvivalController;
   survivalStats: SurvivalStatsController;
@@ -167,6 +173,26 @@ const materialCombinerPanel = new MaterialCombinerPanel(
   },
 );
 const deathScreen = new DeathScreen(deathScreenRoot);
+
+function giveMaterial(materialId: string, count = 1): MaterialGiveResult {
+  const kit = activeGame?.materialTestingKit;
+
+  if (!kit) {
+    return {
+      ok: false,
+      material: null,
+      itemId: null,
+      count,
+      message: "No active world.",
+    };
+  }
+
+  return kit.giveMaterial(materialId, count);
+}
+
+(
+  globalThis as typeof globalThis & { giveMaterial: typeof giveMaterial }
+).giveMaterial = giveMaterial;
 
 audioManager.attachUserInteractionListeners(document);
 audioManager.attachUiClickSounds(document);
@@ -288,6 +314,7 @@ function toggleDebugOverlay(): void {
     draftSettings = settings;
     saveGameSettingsToLocalStorage(settings);
     applySettingsToBody(settings);
+    materialCodexPanel.refresh();
     if (meshStatus) {
       meshStatus.hidden = !debugOverlayEnabled;
       meshStatus.textContent = debugOverlayEnabled
@@ -456,6 +483,7 @@ function stopActiveGame(): void {
   activeGame.atmosphere.destroy();
   materialCodexPanel.hide();
   materialCodexPanel.setRegistry(null);
+  materialCodexPanel.setDebugActions(null);
   materialCombinerPanel.hide();
   materialCombinerPanel.setSession(null);
   activeGame.performanceMonitor.reset();
@@ -590,6 +618,27 @@ async function startWorld(save: LoadedWorldSave): Promise<void> {
       onMaterialDiscovered: () => materialCodexPanel.refresh(),
       onSaveRequested: () => void saveActiveGame(),
     });
+    const materialTestingKit = new MaterialTestingKit({
+      materialWorld,
+      inventory,
+      onMaterialDiscovered: () => materialCodexPanel.refresh(),
+      onSaveRequested: () => void saveActiveGame(),
+    });
+    materialCodexPanel.setDebugActions({
+      isVisible: () => {
+        const currentSettings =
+          activeGame?.id === sessionId ? activeGame.settings : settings;
+
+        return canUseMaterialTestingKit(
+          currentSettings.gameMode,
+          currentSettings.debugOverlay,
+        );
+      },
+      giveMaterial: (materialId, count) =>
+        materialTestingKit.giveMaterial(materialId, count),
+      giveCommonStarterElements: (count) =>
+        materialTestingKit.giveCommonStarterElements(count),
+    });
     if (hasSavedInventory(save.runtime.inventory)) {
       inventory.importState(save.runtime.inventory);
     }
@@ -655,8 +704,20 @@ async function startWorld(save: LoadedWorldSave): Promise<void> {
       settings.gameMode,
       () => void saveActiveGame(),
       audioManager,
-      materialRegistry,
-      () => materialCodexPanel.refresh(),
+      materialWorld,
+      () => {
+        materialCodexPanel.refresh();
+        void saveActiveGame();
+      },
+      (stationType) => {
+        if (materialCodexPanel.isOpen()) {
+          materialCodexPanel.hide();
+        }
+        if (document.body.classList.contains("inventory-open")) {
+          inventory.toggle();
+        }
+        materialCombinerPanel.show(stationType, true);
+      },
       settings.worldSeed,
     );
     const playerStats = new PlayerStats();
@@ -693,6 +754,7 @@ async function startWorld(save: LoadedWorldSave): Promise<void> {
       entityRenderer,
       inventory,
       materialWorld,
+      materialTestingKit,
       gameTime,
       survival,
       survivalStats,
@@ -907,8 +969,10 @@ const settingsMenu = new SettingsMenu(menuRoot, {
         settings: runtimeSettings,
       };
       applySettingsToBody(runtimeSettings);
+      materialCodexPanel.refresh();
     } else {
       applySettingsToBody(settings);
+      materialCodexPanel.refresh();
     }
     returnFromSettings("Settings saved.");
   },

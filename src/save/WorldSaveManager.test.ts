@@ -98,10 +98,13 @@ describe("world save manager", () => {
   });
 
   it("creates starting material codex with basic starter elements", () => {
-    const codex = createStartingMaterialCodex(getDefaultGameSettings(), {
-      ...DEFAULT_MATERIAL_CONFIG,
-      startingElementMode: "basic",
-    });
+    const codex = createStartingMaterialCodex(
+      { ...getDefaultGameSettings(), gameMode: "survival" },
+      {
+        ...DEFAULT_MATERIAL_CONFIG,
+        startingElementMode: "basic",
+      },
+    );
 
     expect(codex.discoveredMaterialIds).toEqual(
       [...BASIC_STARTING_ELEMENT_IDS].sort(),
@@ -134,7 +137,10 @@ describe("world save manager", () => {
       ...DEFAULT_MATERIAL_CONFIG,
       startingElementMode: "basic",
     });
-    const save = await manager.createWorld(getDefaultGameSettings(), 1000);
+    const save = await manager.createWorld(
+      { ...getDefaultGameSettings(), gameMode: "survival" },
+      1000,
+    );
 
     expect(save.runtime.materialCodex.discoveredMaterialIds).toEqual(
       [...BASIC_STARTING_ELEMENT_IDS].sort(),

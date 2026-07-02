@@ -26,6 +26,12 @@ export type MaterialCombinerPanelSession = Readonly<{
   onSaveRequested?: () => void;
 }>;
 
+export type MaterialCombinerStationOption = Readonly<{
+  stationType: MaterialProcessingStationType;
+  label: string;
+  disabled: boolean;
+}>;
+
 type PanelMessage = Readonly<{
   tone: "success" | "warning" | "neutral";
   text: string;
@@ -41,6 +47,26 @@ export function materialCombinerKnownResultLabel(
   material: MaterialDefinition | null,
 ): string {
   return material ? `Known result: ${material.name}` : "Undiscovered Reaction";
+}
+
+export function materialCombinerStationOptions(
+  selectedStation: MaterialProcessingStationType = "combiner",
+  lockedToStation = false,
+): readonly MaterialCombinerStationOption[] {
+  return MATERIAL_PROCESSING_STATION_TYPES.map((stationType) => {
+    const station = materialStationDefinition(stationType);
+    const available = lockedToStation
+      ? stationType === selectedStation
+      : stationType === "combiner";
+
+    return {
+      stationType,
+      label: available
+        ? station.displayName
+        : `${station.displayName} (locked)`,
+      disabled: !available,
+    };
+  });
 }
 
 function countLabel(count: number): string {
@@ -116,6 +142,7 @@ export class MaterialCombinerPanel {
   #selectedMaterialAId: string | null = null;
   #selectedMaterialBId: string | null = null;
   #selectedStation: MaterialProcessingStationType = "combiner";
+  #stationLocked = false;
   #message: PanelMessage | null = null;
 
   constructor(
@@ -141,6 +168,7 @@ export class MaterialCombinerPanel {
     this.#selectedMaterialAId = null;
     this.#selectedMaterialBId = null;
     this.#selectedStation = "combiner";
+    this.#stationLocked = false;
     this.#message = null;
 
     if (this.isOpen()) {
@@ -152,7 +180,12 @@ export class MaterialCombinerPanel {
     return !this.#root.hidden;
   }
 
-  show(): void {
+  show(
+    stationType: MaterialProcessingStationType = "combiner",
+    lockedToStation = false,
+  ): void {
+    this.#selectedStation = stationType;
+    this.#stationLocked = lockedToStation;
     this.#root.hidden = false;
     document.body.classList.add("material-combiner-open");
     this.#renderShell();
@@ -170,6 +203,7 @@ export class MaterialCombinerPanel {
     this.#previewRoot = null;
     this.#messageRoot = null;
     this.#combineButton = null;
+    this.#stationLocked = false;
     this.#message = null;
     this.#onOpenChange(false);
   }
@@ -224,6 +258,11 @@ export class MaterialCombinerPanel {
       this.#renderPreview();
     });
     this.#stationSelect.addEventListener("change", () => {
+      if (this.#stationLocked) {
+        this.#stationSelect!.value = this.#selectedStation;
+        return;
+      }
+
       const value = this.#stationSelect?.value;
 
       this.#selectedStation = isMaterialProcessingStationType(value)
@@ -309,20 +348,20 @@ export class MaterialCombinerPanel {
     }
 
     this.#stationSelect.replaceChildren(
-      ...MATERIAL_PROCESSING_STATION_TYPES.map((stationType) => {
-        const station = materialStationDefinition(stationType);
+      ...materialCombinerStationOptions(
+        this.#selectedStation,
+        this.#stationLocked,
+      ).map((stationOption) => {
         const item = document.createElement("option");
 
-        item.value = stationType;
-        item.textContent =
-          stationType === "combiner"
-            ? station.displayName
-            : `${station.displayName} (locked)`;
-        item.disabled = stationType !== "combiner";
+        item.value = stationOption.stationType;
+        item.textContent = stationOption.label;
+        item.disabled = stationOption.disabled;
         return item;
       }),
     );
     this.#stationSelect.value = this.#selectedStation;
+    this.#stationSelect.disabled = this.#stationLocked;
   }
 
   #renderPreview(): void {

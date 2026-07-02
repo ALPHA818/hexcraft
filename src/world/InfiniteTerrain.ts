@@ -20,6 +20,11 @@ import {
   DEFAULT_WORLD_SEED,
   generateTerrainColumn,
 } from "./TerrainGenerator.ts";
+import {
+  dynamicMaterialVoxelKey,
+  isDynamicMaterialBlock,
+  normalizeDynamicMaterialId,
+} from "./DynamicMaterialBlocks.ts";
 import { blockDefinitionFor, type BlockDefinition } from "./blocks.ts";
 import {
   axialDistance,
@@ -451,12 +456,14 @@ export function buildTerrainStream(
       );
     }
 
-    if (
-      edit[3] === TerrainMaterial.DynamicMaterial &&
-      typeof edit[4] === "string" &&
-      edit[4].trim() !== ""
-    ) {
-      dynamicMaterialIdsByVoxel.set(dynamicVoxelKey, edit[4]);
+    if (isDynamicMaterialBlock(edit[3])) {
+      const materialId = normalizeDynamicMaterialId(edit[4]);
+
+      if (materialId) {
+        dynamicMaterialIdsByVoxel.set(dynamicVoxelKey, materialId);
+      } else {
+        dynamicMaterialIdsByVoxel.delete(dynamicVoxelKey);
+      }
     } else {
       dynamicMaterialIdsByVoxel.delete(dynamicVoxelKey);
     }
@@ -736,9 +743,7 @@ export class InfiniteTerrain {
 
   dynamicMaterialIdAt(position: VoxelPosition): string | null {
     return (
-      this.#dynamicMaterialIds.get(
-        voxelKey(position.q, position.r, position.level),
-      ) ?? null
+      this.#dynamicMaterialIds.get(dynamicMaterialVoxelKey(position)) ?? null
     );
   }
 
@@ -898,14 +903,11 @@ export class InfiniteTerrain {
     material: TerrainMaterial,
     dynamicMaterialId: string | undefined,
   ): void {
-    const key = voxelKey(position.q, position.r, position.level);
+    const key = dynamicMaterialVoxelKey(position);
+    const materialId = normalizeDynamicMaterialId(dynamicMaterialId);
 
-    if (
-      material === TerrainMaterial.DynamicMaterial &&
-      typeof dynamicMaterialId === "string" &&
-      dynamicMaterialId.trim() !== ""
-    ) {
-      this.#dynamicMaterialIds.set(key, dynamicMaterialId);
+    if (isDynamicMaterialBlock(material) && materialId) {
+      this.#dynamicMaterialIds.set(key, materialId);
       return;
     }
 
@@ -1209,11 +1211,11 @@ export class InfiniteTerrain {
       const r = Number(rText);
       for (const [level, material] of columnEdits) {
         const dynamicMaterialId = this.#dynamicMaterialIds.get(
-          voxelKey(q, r, level),
+          dynamicMaterialVoxelKey({ q, r, level }),
         );
 
         edits.push(
-          material === TerrainMaterial.DynamicMaterial && dynamicMaterialId
+          isDynamicMaterialBlock(material) && dynamicMaterialId
             ? [q, r, level, material, dynamicMaterialId]
             : [q, r, level, material],
         );

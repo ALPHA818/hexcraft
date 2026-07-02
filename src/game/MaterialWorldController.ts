@@ -3,6 +3,7 @@ import {
   normalizeMaterialConfig,
   type MaterialConfig,
 } from "../materials/MaterialConfig.ts";
+import { BASE_ELEMENT_MATERIALS } from "../materials/BaseElements.ts";
 import { combineMaterials } from "../materials/MaterialCombiner.ts";
 import { MaterialRegistry } from "../materials/MaterialRegistry.ts";
 import {
@@ -103,6 +104,11 @@ export class MaterialWorldController {
       materialCodex,
       this.#config,
     );
+    if (this.#mode === "creative") {
+      for (const material of BASE_ELEMENT_MATERIALS) {
+        this.#registry.discoverBaseMaterial(material.id);
+      }
+    }
     this.#research = createMaterialResearchState(
       materialCodex.unlockedResearchTiers,
     );

@@ -12,6 +12,8 @@ export type EquippedTool = Readonly<{
   speedMultiplier: number;
   preferredBlockBonus?: number;
   instabilityRisk?: number;
+  enchantPotential?: number;
+  dangerous?: boolean;
   materialId?: string;
 }>;
 

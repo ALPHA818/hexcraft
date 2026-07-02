@@ -55,6 +55,91 @@ export const RECIPE_REGISTRY = [
     ],
     outputs: [{ itemId: "tool:shovel", count: 1 }],
   }),
+  shapelessRecipe({
+    id: "element_combiner_station",
+    displayName: "Element Combiner",
+    inputs: [
+      { itemId: "material:crystal", count: 1 },
+      { itemId: "block:planks", count: 1 },
+      { itemId: "block:stone", count: 1 },
+    ],
+    outputs: [{ itemId: "block:element_combiner", count: 1 }],
+  }),
+  shapelessRecipe({
+    id: "forge_station_iron",
+    displayName: "Forge Station",
+    inputs: [
+      { itemId: "block:stone", count: 1 },
+      { itemId: "material:coal", count: 1 },
+      { itemId: "material:raw_iron", count: 1 },
+    ],
+    outputs: [{ itemId: "block:forge_station", count: 1 }],
+  }),
+  shapelessRecipe({
+    id: "forge_station_copper",
+    displayName: "Forge Station",
+    inputs: [
+      { itemId: "block:stone", count: 1 },
+      { itemId: "material:coal", count: 1 },
+      { itemId: "material:raw_copper", count: 1 },
+    ],
+    outputs: [{ itemId: "block:forge_station", count: 1 }],
+  }),
+  shapelessRecipe({
+    id: "crystallizer_station",
+    displayName: "Crystallizer",
+    inputs: [
+      { itemId: "material:crystal", count: 1 },
+      { itemId: "block:stone", count: 1 },
+    ],
+    outputs: [{ itemId: "block:crystallizer_station", count: 1 }],
+  }),
+  shapelessRecipe({
+    id: "distiller_station",
+    displayName: "Distiller",
+    inputs: [
+      { itemId: "block:sand", count: 1 },
+      { itemId: "material:raw_copper", count: 1 },
+    ],
+    outputs: [{ itemId: "block:distiller_station", count: 1 }],
+  }),
+  shapelessRecipe({
+    id: "stabilizer_station",
+    displayName: "Stabilizer",
+    inputs: [
+      { itemId: "material:crystal", count: 1 },
+      { itemId: "material:raw_iron", count: 1 },
+      { itemId: "material:coal", count: 1 },
+    ],
+    outputs: [{ itemId: "block:stabilizer_station", count: 1 }],
+  }),
+  shapelessRecipe({
+    id: "infuser_station",
+    displayName: "Infuser",
+    inputs: [
+      { itemId: "material:crystal", count: 1 },
+      { itemId: "material:coal", count: 1 },
+    ],
+    outputs: [{ itemId: "block:infuser_station", count: 1 }],
+  }),
+  shapelessRecipe({
+    id: "assembler_station_iron",
+    displayName: "Assembler",
+    inputs: [
+      { itemId: "block:planks", count: 1 },
+      { itemId: "material:raw_iron", count: 1 },
+    ],
+    outputs: [{ itemId: "block:assembler_station", count: 1 }],
+  }),
+  shapelessRecipe({
+    id: "assembler_station_copper",
+    displayName: "Assembler",
+    inputs: [
+      { itemId: "block:planks", count: 1 },
+      { itemId: "material:raw_copper", count: 1 },
+    ],
+    outputs: [{ itemId: "block:assembler_station", count: 1 }],
+  }),
 ] as const satisfies readonly Recipe[];
 
 export function recipeById(recipeId: string): Recipe | null {

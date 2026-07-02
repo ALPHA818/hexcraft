@@ -1,3 +1,10 @@
+import type { MaterialProcessingStationType } from "../materials/MaterialTypes.ts";
+import {
+  DYNAMIC_MATERIAL_BLOCK_DISPLAY_NAME,
+  DYNAMIC_MATERIAL_BLOCK_ID,
+  DYNAMIC_MATERIAL_BLOCK_TEXTURE,
+} from "./DynamicMaterialBlocks.ts";
+
 export type BlockId =
   | "air"
   | "grass"
@@ -22,7 +29,14 @@ export type BlockId =
   | "flower"
   | "mushroom"
   | "torch"
-  | "dynamic_material";
+  | typeof DYNAMIC_MATERIAL_BLOCK_ID
+  | "element_combiner"
+  | "forge_station"
+  | "crystallizer_station"
+  | "distiller_station"
+  | "stabilizer_station"
+  | "infuser_station"
+  | "assembler_station";
 
 export type PreferredTool =
   "hand" | "shovel" | "pickaxe" | "axe" | "shears" | "bucket";
@@ -80,6 +94,13 @@ export const MATERIAL_NUMERIC_IDS = {
   CrystalOre: 21,
   Torch: 22,
   DynamicMaterial: 23,
+  ElementCombiner: 24,
+  ForgeStation: 25,
+  CrystallizerStation: 26,
+  DistillerStation: 27,
+  StabilizerStation: 28,
+  InfuserStation: 29,
+  AssemblerStation: 30,
 } as const;
 
 function sameTexture(name: string): BlockTextures {
@@ -428,9 +449,9 @@ export const BLOCK_DEFINITIONS = [
     lightEmission: 14,
   },
   {
-    id: "dynamic_material",
+    id: DYNAMIC_MATERIAL_BLOCK_ID,
     numericId: MATERIAL_NUMERIC_IDS.DynamicMaterial,
-    displayName: "Dynamic Material",
+    displayName: DYNAMIC_MATERIAL_BLOCK_DISPLAY_NAME,
     solid: true,
     opaque: true,
     fluid: false,
@@ -439,9 +460,120 @@ export const BLOCK_DEFINITIONS = [
     hardness: 1.4,
     preferredTool: "pickaxe",
     drops: [],
-    textures: sameTexture("dynamic_material"),
+    textures: sameTexture(DYNAMIC_MATERIAL_BLOCK_TEXTURE),
+  },
+  {
+    id: "element_combiner",
+    numericId: MATERIAL_NUMERIC_IDS.ElementCombiner,
+    displayName: "Element Combiner",
+    solid: true,
+    opaque: true,
+    fluid: false,
+    breakable: true,
+    placeable: true,
+    hardness: 2.2,
+    preferredTool: "pickaxe",
+    drops: singleDrop(MATERIAL_NUMERIC_IDS.ElementCombiner),
+    textures: sameTexture("element_combiner"),
+  },
+  {
+    id: "forge_station",
+    numericId: MATERIAL_NUMERIC_IDS.ForgeStation,
+    displayName: "Forge Station",
+    solid: true,
+    opaque: true,
+    fluid: false,
+    breakable: true,
+    placeable: true,
+    hardness: 2.8,
+    preferredTool: "pickaxe",
+    drops: singleDrop(MATERIAL_NUMERIC_IDS.ForgeStation),
+    textures: sameTexture("forge_station"),
+  },
+  {
+    id: "crystallizer_station",
+    numericId: MATERIAL_NUMERIC_IDS.CrystallizerStation,
+    displayName: "Crystallizer",
+    solid: true,
+    opaque: true,
+    fluid: false,
+    breakable: true,
+    placeable: true,
+    hardness: 2.4,
+    preferredTool: "pickaxe",
+    drops: singleDrop(MATERIAL_NUMERIC_IDS.CrystallizerStation),
+    textures: sameTexture("crystallizer_station"),
+  },
+  {
+    id: "distiller_station",
+    numericId: MATERIAL_NUMERIC_IDS.DistillerStation,
+    displayName: "Distiller",
+    solid: true,
+    opaque: true,
+    fluid: false,
+    breakable: true,
+    placeable: true,
+    hardness: 2.1,
+    preferredTool: "pickaxe",
+    drops: singleDrop(MATERIAL_NUMERIC_IDS.DistillerStation),
+    textures: sameTexture("distiller_station"),
+  },
+  {
+    id: "stabilizer_station",
+    numericId: MATERIAL_NUMERIC_IDS.StabilizerStation,
+    displayName: "Stabilizer",
+    solid: true,
+    opaque: true,
+    fluid: false,
+    breakable: true,
+    placeable: true,
+    hardness: 2.6,
+    preferredTool: "pickaxe",
+    drops: singleDrop(MATERIAL_NUMERIC_IDS.StabilizerStation),
+    textures: sameTexture("stabilizer_station"),
+  },
+  {
+    id: "infuser_station",
+    numericId: MATERIAL_NUMERIC_IDS.InfuserStation,
+    displayName: "Infuser",
+    solid: true,
+    opaque: true,
+    fluid: false,
+    breakable: true,
+    placeable: true,
+    hardness: 2.5,
+    preferredTool: "pickaxe",
+    drops: singleDrop(MATERIAL_NUMERIC_IDS.InfuserStation),
+    textures: sameTexture("infuser_station"),
+  },
+  {
+    id: "assembler_station",
+    numericId: MATERIAL_NUMERIC_IDS.AssemblerStation,
+    displayName: "Assembler",
+    solid: true,
+    opaque: true,
+    fluid: false,
+    breakable: true,
+    placeable: true,
+    hardness: 2.3,
+    preferredTool: "pickaxe",
+    drops: singleDrop(MATERIAL_NUMERIC_IDS.AssemblerStation),
+    textures: sameTexture("assembler_station"),
   },
 ] as const satisfies readonly BlockDefinition[];
+
+const MATERIAL_STATION_TYPES_BY_NUMERIC_ID: ReadonlyMap<
+  number,
+  MaterialProcessingStationType
+> = new Map([
+  [MATERIAL_NUMERIC_IDS.ElementCombiner, "combiner"],
+  [MATERIAL_NUMERIC_IDS.ForgeStation, "forge"],
+  [MATERIAL_NUMERIC_IDS.CrystallizerStation, "crystallizer"],
+  [MATERIAL_NUMERIC_IDS.DistillerStation, "distiller"],
+  [MATERIAL_NUMERIC_IDS.StabilizerStation, "stabilizer"],
+  [MATERIAL_NUMERIC_IDS.InfuserStation, "infuser"],
+  [MATERIAL_NUMERIC_IDS.AssemblerStation, "assembler"],
+]);
 
 export const BLOCKS_BY_NUMERIC_ID: ReadonlyMap<number, BlockDefinition> =
   new Map(BLOCK_DEFINITIONS.map((block) => [block.numericId, block]));
@@ -456,6 +588,12 @@ export const HOTBAR_BLOCK_NUMERIC_IDS = [
 
 export function blockDefinitionFor(numericId: number): BlockDefinition {
   return BLOCKS_BY_NUMERIC_ID.get(numericId) ?? BLOCK_DEFINITIONS[0];
+}
+
+export function materialProcessingStationTypeForBlock(
+  numericId: number,
+): MaterialProcessingStationType | null {
+  return MATERIAL_STATION_TYPES_BY_NUMERIC_ID.get(numericId) ?? null;
 }
 
 export function isBlockFluid(numericId: number): boolean {

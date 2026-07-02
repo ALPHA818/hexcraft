@@ -53,6 +53,13 @@ export const enum TerrainMaterial {
   CrystalOre = 21,
   Torch = 22,
   DynamicMaterial = 23,
+  ElementCombiner = 24,
+  ForgeStation = 25,
+  CrystallizerStation = 26,
+  DistillerStation = 27,
+  StabilizerStation = 28,
+  InfuserStation = 29,
+  AssemblerStation = 30,
 }
 
 export function isFluidMaterial(material: TerrainMaterial): boolean {
@@ -260,6 +267,20 @@ function textureFor(
       return BlockTexture.CrystalOre;
     case TerrainMaterial.DynamicMaterial:
       return BlockTexture.DynamicMaterial;
+    case TerrainMaterial.ElementCombiner:
+      return BlockTexture.DynamicMaterial;
+    case TerrainMaterial.ForgeStation:
+      return BlockTexture.DeepStone;
+    case TerrainMaterial.CrystallizerStation:
+      return BlockTexture.CrystalOre;
+    case TerrainMaterial.DistillerStation:
+      return BlockTexture.Sand;
+    case TerrainMaterial.StabilizerStation:
+      return BlockTexture.CaveStone;
+    case TerrainMaterial.InfuserStation:
+      return BlockTexture.CrystalOre;
+    case TerrainMaterial.AssemblerStation:
+      return BlockTexture.Planks;
     case TerrainMaterial.Torch:
       return BlockTexture.Torch;
     case TerrainMaterial.Cactus:

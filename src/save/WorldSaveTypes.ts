@@ -419,9 +419,8 @@ export function createStartingMaterialCodex(
 ): SerializedMaterialCodex {
   const normalizedConfig = normalizeMaterialConfig(config);
   const discoverAll =
-    normalizedConfig.startingElementMode === "all" ||
-    (normalizedConfig.startingElementMode === "creativeAll" &&
-      settings.gameMode === "creative");
+    settings.gameMode === "creative" ||
+    normalizedConfig.startingElementMode === "all";
 
   return emptyMaterialCodexSave(
     discoverAll ? allBaseElementIds() : BASIC_STARTING_ELEMENT_IDS,

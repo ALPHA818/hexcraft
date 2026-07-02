@@ -1,6 +1,9 @@
 import { describe, expect, it } from "vitest";
 
-import { TerrainMaterial } from "../geometry/terrainChunk.ts";
+import {
+  TerrainMaterial,
+  TERRAIN_DEPTH_BLOCKS,
+} from "../geometry/terrainChunk.ts";
 import { itemIdForMaterial, type ItemId } from "../items/ItemRegistry.ts";
 import { BASE_ELEMENT_MATERIALS } from "../materials/BaseElements.ts";
 import { MaterialRegistry } from "../materials/MaterialRegistry.ts";
@@ -126,6 +129,42 @@ describe("material drop rules", () => {
     ]);
   });
 
+  it("mining gold ore discovers gold", () => {
+    const registry = undiscoveredRegistry();
+    const inventory = createInventorySink();
+    const result = applyMaterialDropRules(
+      TerrainMaterial.GoldOre,
+      inventory,
+      registry,
+    );
+
+    expect(discoveredIds(registry)).toEqual(["element:gold"]);
+    expect(result.notifications).toEqual(["Discovered Gold"]);
+    expect(inventory.itemDrops).toContainEqual(["material:raw_gold", 1]);
+    expect(inventory.itemDrops).toContainEqual([
+      itemIdForMaterial("element:gold"),
+      1,
+    ]);
+  });
+
+  it("mining crystal ore discovers a crystal-associated material", () => {
+    const registry = undiscoveredRegistry();
+    const inventory = createInventorySink();
+    const result = applyMaterialDropRules(
+      TerrainMaterial.CrystalOre,
+      inventory,
+      registry,
+    );
+
+    expect(discoveredIds(registry)).toEqual(["element:silicon"]);
+    expect(result.notifications).toEqual(["Discovered Silicon"]);
+    expect(inventory.itemDrops).toContainEqual(["material:crystal", 1]);
+    expect(inventory.itemDrops).toContainEqual([
+      itemIdForMaterial("element:silicon"),
+      1,
+    ]);
+  });
+
   it("repeat mining does not duplicate discovered material notifications", () => {
     const registry = undiscoveredRegistry();
     const firstInventory = createInventorySink();
@@ -168,6 +207,32 @@ describe("material drop rules", () => {
     expect(stoneInventory.blockDrops).toEqual([[TerrainMaterial.Stone, 1]]);
   });
 
+  it("mining stone underground can discover a deterministic silicon trace", () => {
+    const registry = undiscoveredRegistry();
+    const inventory = createInventorySink();
+    const result = applyMaterialDropRules(
+      TerrainMaterial.Stone,
+      inventory,
+      registry,
+      {
+        discoveryContext: {
+          q: 3,
+          r: -2,
+          level: TERRAIN_DEPTH_BLOCKS - 2,
+          worldSeed: 77,
+          config: { materialTraceDiscoveryChance: 1 },
+        },
+      },
+    );
+
+    expect(result.traceMaterialIds).toEqual(["element:silicon"]);
+    expect(result.notifications).toEqual(["Found trace of Silicon"]);
+    expect(inventory.itemDrops).toContainEqual([
+      itemIdForMaterial("element:silicon"),
+      1,
+    ]);
+  });
+
   it("mining with biome context can discover one rare material trace", () => {
     const registry = undiscoveredRegistry();
     const inventory = createInventorySink();
@@ -180,7 +245,7 @@ describe("material drop rules", () => {
           biome: "desert",
           q: 3,
           r: -2,
-          level: 498,
+          level: TERRAIN_DEPTH_BLOCKS + 3,
           worldSeed: 77,
           config: { materialTraceDiscoveryChance: 1 },
         },
@@ -196,6 +261,81 @@ describe("material drop rules", () => {
         itemId.startsWith("generated-material:"),
       ),
     ).toHaveLength(1);
+    expect(result.notifications[0]).toMatch(/^Found trace of /);
+  });
+
+  it("biome trace chance is deterministic for the same seed", () => {
+    const attempts = Array.from({ length: 64 }, (_, index) => index);
+    const traceSequence = attempts.map((index) => {
+      const registry = undiscoveredRegistry();
+      const inventory = createInventorySink();
+
+      return applyMaterialDropRules(
+        TerrainMaterial.Stone,
+        inventory,
+        registry,
+        {
+          discoveryContext: {
+            biome: "desert",
+            q: index,
+            r: -index,
+            level: TERRAIN_DEPTH_BLOCKS + 4,
+            worldSeed: 512,
+            config: { materialTraceDiscoveryChance: 0.5 },
+          },
+        },
+      ).traceMaterialIds;
+    });
+    const repeatedTraceSequence = attempts.map((index) => {
+      const registry = undiscoveredRegistry();
+      const inventory = createInventorySink();
+
+      return applyMaterialDropRules(
+        TerrainMaterial.Stone,
+        inventory,
+        registry,
+        {
+          discoveryContext: {
+            biome: "desert",
+            q: index,
+            r: -index,
+            level: TERRAIN_DEPTH_BLOCKS + 4,
+            worldSeed: 512,
+            config: { materialTraceDiscoveryChance: 0.5 },
+          },
+        },
+      ).traceMaterialIds;
+    });
+
+    expect(repeatedTraceSequence).toEqual(traceSequence);
+    expect(traceSequence.some((traceIds) => traceIds.length > 0)).toBe(true);
+    expect(traceSequence.some((traceIds) => traceIds.length === 0)).toBe(true);
+  });
+
+  it("cave affinity can discover a cave material trace", () => {
+    const registry = undiscoveredRegistry();
+    const inventory = createInventorySink();
+    const result = applyMaterialDropRules(
+      TerrainMaterial.Stone,
+      inventory,
+      registry,
+      {
+        discoveryContext: {
+          isCave: true,
+          q: 12,
+          r: -4,
+          level: TERRAIN_DEPTH_BLOCKS + 6,
+          worldSeed: 91,
+          config: { materialTraceDiscoveryChance: 1 },
+        },
+      },
+    );
+
+    expect(result.traceMaterialIds).toHaveLength(1);
+    expect(["element:silicon", "element:uranium"]).toContain(
+      result.traceMaterialIds[0],
+    );
+    expect(result.notifications[0]).toMatch(/^Found trace of /);
   });
 
   it("mining dynamic material returns the correct generated material item", () => {

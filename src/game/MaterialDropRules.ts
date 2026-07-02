@@ -1,19 +1,34 @@
 import {
   TerrainMaterial,
+  TERRAIN_DEPTH_BLOCKS,
   type TerrainBiome,
 } from "../geometry/terrainChunk.ts";
 import { itemIdForMaterial, type ItemId } from "../items/ItemRegistry.ts";
-import type { MaterialConfig } from "../materials/MaterialConfig.ts";
+import {
+  DEFAULT_MATERIAL_CONFIG,
+  normalizeMaterialConfig,
+  type MaterialConfig,
+} from "../materials/MaterialConfig.ts";
 import {
   materialTraceDiscoveryForEvent,
   type MaterialAffinitySource,
 } from "../materials/MaterialBiomeAffinities.ts";
-import type { MaterialRegistry } from "../materials/MaterialRegistry.ts";
+import { stableHashFloat } from "../materials/MaterialHash.ts";
+import type { MaterialDefinition } from "../materials/MaterialTypes.ts";
+import {
+  dynamicMaterialBlockDropItemId,
+  isDynamicMaterialBlock,
+} from "../world/DynamicMaterialBlocks.ts";
 import { blockDefinitionFor } from "../world/blocks.ts";
 
 export type MaterialDropInventory = Readonly<{
   add: (material: TerrainMaterial, quantity: number) => void;
   addItem: (itemId: ItemId, quantity: number) => boolean;
+}>;
+
+export type MaterialDropMaterialSource = Readonly<{
+  getMaterialById: (materialId: string) => MaterialDefinition | null;
+  discoverMaterial: (materialId: string) => boolean;
 }>;
 
 export type MaterialDiscoveryRule = Readonly<{
@@ -68,7 +83,6 @@ const MATERIAL_DISCOVERY_RULES = [
     minedMaterial: TerrainMaterial.CrystalOre,
     materialId: "element:silicon",
     itemQuantity: 1,
-    notificationName: "Crystal Shard",
   },
 ] as const satisfies readonly MaterialDiscoveryRule[];
 
@@ -116,9 +130,121 @@ function discoverySourcesForContext(
   return sources;
 }
 
+function normalizedTraceChance(
+  config: MaterialDropDiscoveryContext["config"] | undefined,
+): number {
+  return normalizeMaterialConfig({
+    ...DEFAULT_MATERIAL_CONFIG,
+    ...config,
+  }).materialTraceDiscoveryChance;
+}
+
+function traceSeed(context: MaterialDropDiscoveryContext): string {
+  return Number.isFinite(context.config?.seed)
+    ? `${context.worldSeed}:${context.config?.seed}`
+    : String(context.worldSeed);
+}
+
+function traceEventKey(
+  context: MaterialDropDiscoveryContext,
+  minedMaterial: TerrainMaterial,
+  suffix: string,
+): string {
+  return `${context.q},${context.r},${context.level}:${minedMaterial}:${suffix}`;
+}
+
+function canRollUndergroundSiliconTrace(
+  minedMaterial: TerrainMaterial,
+  context: MaterialDropDiscoveryContext | undefined,
+): context is MaterialDropDiscoveryContext {
+  return (
+    minedMaterial === TerrainMaterial.Stone &&
+    context !== undefined &&
+    context.level < TERRAIN_DEPTH_BLOCKS
+  );
+}
+
+function addTraceDiscovery(
+  materialId: string,
+  materials: MaterialDropMaterialSource,
+  inventory: MaterialDropInventory,
+  discoveredMaterialIds: string[],
+  materialItemIds: ItemId[],
+  traceMaterialIds: string[],
+  notifications: string[],
+  suppressNotifications: boolean,
+): void {
+  const material = materials.getMaterialById(materialId);
+
+  if (!material || material.generation !== 0) {
+    return;
+  }
+
+  const newlyDiscovered = materials.discoverMaterial(material.id);
+  const materialItemId = itemIdForMaterial(material.id);
+
+  inventory.addItem(materialItemId, 1);
+  materialItemIds.push(materialItemId);
+  traceMaterialIds.push(material.id);
+
+  if (newlyDiscovered) {
+    discoveredMaterialIds.push(material.id);
+    if (!suppressNotifications) {
+      notifications.push(`Found trace of ${material.name}`);
+    }
+  }
+}
+
+function applyUndergroundStoneTraceDiscovery(
+  minedMaterial: TerrainMaterial,
+  materials: MaterialDropMaterialSource,
+  inventory: MaterialDropInventory,
+  context: MaterialDropDiscoveryContext | undefined,
+  discoveredMaterialIds: string[],
+  materialItemIds: ItemId[],
+  traceMaterialIds: string[],
+  notifications: string[],
+  suppressNotifications: boolean,
+): void {
+  if (!canRollUndergroundSiliconTrace(minedMaterial, context)) {
+    return;
+  }
+
+  const chance = normalizedTraceChance(context.config);
+
+  if (chance <= 0) {
+    return;
+  }
+
+  const roll = stableHashFloat(
+    `${traceSeed(context)}|material-trace|underground-stone|${traceEventKey(
+      context,
+      minedMaterial,
+      "silicon",
+    )}|roll`,
+    0,
+    1,
+  );
+
+  if (roll >= chance) {
+    return;
+  }
+
+  addTraceDiscovery(
+    "element:silicon",
+    materials,
+    inventory,
+    discoveredMaterialIds,
+    materialItemIds,
+    traceMaterialIds,
+    notifications,
+    suppressNotifications,
+  );
+}
+
 function applyTraceDiscovery(
   minedMaterial: TerrainMaterial,
-  registry: MaterialRegistry,
+  materials: MaterialDropMaterialSource,
   inventory: MaterialDropInventory,
   context: MaterialDropDiscoveryContext | undefined,
   knownEventMaterialIds: ReadonlySet<string>,
@@ -145,31 +271,22 @@ function applyTraceDiscovery(
     return;
   }
 
-  const material = registry.getMaterialById(trace.materialId);
-
-  if (!material || material.generation !== 0) {
-    return;
-  }
-
-  const newlyDiscovered = registry.discoverBaseMaterial(material.id);
-  const materialItemId = itemIdForMaterial(material.id);
-
-  inventory.addItem(materialItemId, 1);
-  materialItemIds.push(materialItemId);
-  traceMaterialIds.push(material.id);
-
-  if (newlyDiscovered) {
-    discoveredMaterialIds.push(material.id);
-    if (!suppressNotifications) {
-      notifications.push(`Discovered ${material.name} trace`);
-    }
-  }
+  addTraceDiscovery(
+    trace.materialId,
+    materials,
+    inventory,
+    discoveredMaterialIds,
+    materialItemIds,
+    traceMaterialIds,
+    notifications,
+    suppressNotifications,
+  );
 }
 
 export function applyMaterialDropRules(
   minedMaterial: TerrainMaterial,
   inventory: MaterialDropInventory,
-  registry: MaterialRegistry | null,
+  materials: MaterialDropMaterialSource | null,
   options: Readonly<{
     dynamicMaterialId?: string | null;
     discoveryContext?: MaterialDropDiscoveryContext;
@@ -192,15 +309,13 @@ export function applyMaterialDropRules(
     }
   }
 
-  if (minedMaterial === TerrainMaterial.DynamicMaterial) {
-    const materialId =
-      typeof options.dynamicMaterialId === "string"
-        ? options.dynamicMaterialId
-        : "";
+  if (isDynamicMaterialBlock(minedMaterial)) {
+    const materialItemId = dynamicMaterialBlockDropItemId(
+      options.dynamicMaterialId,
+      materials,
+    );
 
-    if (materialId !== "" && registry?.hasMaterial(materialId)) {
-      const materialItemId = itemIdForMaterial(materialId);
-
+    if (materialItemId) {
       inventory.addItem(materialItemId, 1);
       materialItemIds.push(materialItemId);
     }
@@ -216,7 +331,7 @@ export function applyMaterialDropRules(
 
   const rule = materialDiscoveryRuleFor(minedMaterial);
 
-  if (!registry) {
+  if (!materials) {
     return emptyDropResult(
       discoveredMaterialIds,
       materialItemIds,
@@ -231,10 +346,10 @@ export function applyMaterialDropRules(
 
   if (rule) {
     knownEventMaterialIds.add(rule.materialId);
-    const material = registry.getMaterialById(rule.materialId);
+    const material = materials.getMaterialById(rule.materialId);
 
     if (material) {
-      const newlyDiscovered = registry.discoverBaseMaterial(material.id);
+      const newlyDiscovered = materials.discoverMaterial(material.id);
       const materialItemId = itemIdForMaterial(material.id);
 
       inventory.addItem(materialItemId, rule.itemQuantity);
@@ -251,9 +366,31 @@ export function applyMaterialDropRules(
     }
   }
 
+  applyUndergroundStoneTraceDiscovery(
+    minedMaterial,
+    materials,
+    inventory,
+    options.discoveryContext,
+    discoveredMaterialIds,
+    materialItemIds,
+    traceMaterialIds,
+    notifications,
+    options.suppressNotifications ?? false,
+  );
+
+  if (traceMaterialIds.length > 0) {
+    return emptyDropResult(
+      discoveredMaterialIds,
+      materialItemIds,
+      traceMaterialIds,
+      notifications,
+      normalDropCount,
+    );
+  }
+
   applyTraceDiscovery(
     minedMaterial,
-    registry,
+    materials,
     inventory,
     options.discoveryContext,
     knownEventMaterialIds,

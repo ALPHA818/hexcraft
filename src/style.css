@@ -850,7 +850,8 @@ body {
 
 .material-balance-detail,
 .material-capabilities-detail,
-.material-recipe-history {
+.material-recipe-history,
+.material-codex-debug-actions {
   display: grid;
   gap: 0.45rem;
   padding-top: 0.4rem;
@@ -858,8 +859,47 @@ body {
 }
 
 .material-balance-detail h4,
-.material-capabilities-detail h4 {
+.material-capabilities-detail h4,
+.material-codex-debug-actions h4 {
   margin: 0;
+}
+
+.material-codex-debug-buttons {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.45rem;
+}
+
+.material-codex-debug-buttons button {
+  min-height: 2.35rem;
+  padding: 0.45rem 0.75rem;
+  border: 0;
+  border-radius: 0.5rem;
+  color: #17220f;
+  font: inherit;
+  font-weight: 800;
+  background: #f6d76b;
+  cursor: pointer;
+}
+
+.material-codex-debug-buttons button:disabled {
+  opacity: 0.35;
+  cursor: not-allowed;
+}
+
+.material-codex-debug-message {
+  margin: 0;
+  color: #9eb3ba;
+  font-size: 0.82rem;
+  overflow-wrap: anywhere;
+}
+
+.material-codex-debug-message.success {
+  color: #c8ff70;
+}
+
+.material-codex-debug-message.warning {
+  color: #ffe08a;
 }
 
 .material-recipe-history strong {
@@ -1397,6 +1437,34 @@ p {
   background: linear-gradient(145deg, #d9bf77, #8c7140);
 }
 
+.material-24 {
+  background: linear-gradient(145deg, #96efff 0 38%, #5261a5 39% 100%);
+}
+
+.material-25 {
+  background: linear-gradient(145deg, #8f9a9a 0 45%, #e87441 46% 100%);
+}
+
+.material-26 {
+  background: linear-gradient(145deg, #b2f6ff 0 42%, #4d7eda 43% 100%);
+}
+
+.material-27 {
+  background: linear-gradient(145deg, #65c9d8 0 45%, #d2d6c8 46% 100%);
+}
+
+.material-28 {
+  background: linear-gradient(145deg, #99d36b 0 42%, #536b73 43% 100%);
+}
+
+.material-29 {
+  background: linear-gradient(145deg, #c68cff 0 42%, #4a7d89 43% 100%);
+}
+
+.material-30 {
+  background: linear-gradient(145deg, #ba8b53 0 45%, #6ccbbf 46% 100%);
+}
+
 #inventory-panel {
   position: fixed;
   top: 50%;
@@ -1518,6 +1586,12 @@ p {
 .recipe.material-combiner-entry.can-craft {
   border-color: rgb(246 215 107 / 24%);
   background: rgb(246 215 107 / 8%);
+}
+
+.recipe.assembler-recipe,
+.recipe.assembler-recipe.can-craft {
+  border-color: rgb(110 255 209 / 22%);
+  background: rgb(110 255 209 / 7%);
 }
 
 .recipe.missing-ingredients {

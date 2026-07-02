@@ -13,10 +13,18 @@ import {
   ITEM_DEFINITIONS,
   itemDefinitionFor,
   itemDefinitionOrThrow,
+  itemIdForMaterial,
+  materialIdFromItemId,
+  modifiedToolItemId,
+  modifiedToolRecipeId,
   placeableMaterialForItem,
   type ItemDefinition,
   type ItemId,
 } from "../items/ItemRegistry.ts";
+import {
+  MODIFIABLE_BASE_TOOL_IDS,
+  type ModifiableBaseToolItemId,
+} from "../items/ModifiedToolTypes.ts";
 import type { MaterialItemResolver } from "../items/MaterialItemResolver.ts";
 import {
   canMergeItemStacks,
@@ -102,6 +110,7 @@ export class Inventory {
 
   #slots: Array<ItemStack | null>;
   #selectedIndex = 0;
+  #grantSlotIndex = 0;
   #isOpen = false;
   #isActive = true;
 
@@ -133,7 +142,11 @@ export class Inventory {
     this.#slots = this.#isCreative
       ? createCreativeSlots()
       : createSurvivalSlots();
-    this.#crafting = new CraftingController(this.#craftingInventory());
+    this.#crafting = new CraftingController(
+      this.#craftingInventory(),
+      undefined,
+      () => this.#modifiedToolRecipes(),
+    );
 
     document.addEventListener("keydown", (event) => {
       if (!this.#isActive) {
@@ -309,6 +322,21 @@ export class Inventory {
     return added;
   }
 
+  grantItem(itemId: ItemId, amount = 1): boolean {
+    const added = this.#addItemToSlots(this.#slots, itemId, amount);
+
+    if (!added && this.#isCreative) {
+      this.#slots[this.#grantSlotIndex] = this.#createItemStack(itemId, amount);
+      this.#selectedIndex = this.#grantSlotIndex;
+      this.#grantSlotIndex = (this.#grantSlotIndex + 1) % this.#slots.length;
+      this.render();
+      return true;
+    }
+
+    this.render();
+    return added;
+  }
+
   remove(material: TerrainMaterial, amount = 1): boolean {
     const itemId = blockItemIdForMaterial(material);
 
@@ -449,6 +477,9 @@ export class Inventory {
       this.#createMaterialCombinerRow(),
       ...this.#crafting
         .recipesForStation("inventory")
+        .map((recipe) => this.#createRecipeRow(recipe)),
+      ...this.#crafting
+        .recipesForStation("assembler")
         .map((recipe) => this.#createRecipeRow(recipe)),
     );
   }
@@ -614,13 +645,19 @@ export class Inventory {
     const canCraft = this.#crafting.canCraft(recipe);
 
     row.className = "recipe";
+    row.classList.toggle("assembler-recipe", recipe.station === "assembler");
     row.classList.toggle("can-craft", canCraft);
     row.classList.toggle("missing-ingredients", !canCraft);
     title.textContent = recipe.displayName;
     summary.textContent = this.#recipeSummary(recipe);
     button.type = "button";
     button.disabled = !canCraft;
-    button.textContent = this.#isCreative ? "Make" : "Craft";
+    button.textContent =
+      recipe.station === "assembler"
+        ? "Assemble"
+        : this.#isCreative
+          ? "Make"
+          : "Craft";
     button.addEventListener("click", () => {
       this.craftRecipe(recipe.id);
     });
@@ -672,7 +709,61 @@ export class Inventory {
       isCreative: () => this.isCreative(),
       countItem: (itemId) => this.countItem(itemId),
       addItem: (itemId, count) => this.addItem(itemId, count),
+      grantItem: (itemId, count) => this.grantItem(itemId, count),
       removeItem: (itemId, count) => this.removeItem(itemId, count),
     };
+  }
+
+  #modifiedToolRecipes(): readonly Recipe[] {
+    const baseToolIds = new Set<ModifiableBaseToolItemId>();
+    const materialIds = new Set<string>();
+
+    for (const stack of this.#slots) {
+      if (!stack) {
+        continue;
+      }
+
+      if (
+        (MODIFIABLE_BASE_TOOL_IDS as readonly string[]).includes(stack.itemId)
+      ) {
+        baseToolIds.add(stack.itemId as ModifiableBaseToolItemId);
+        continue;
+      }
+
+      const materialId = materialIdFromItemId(stack.itemId);
+      const material = materialId
+        ? this.#materialItemResolver?.getMaterialById(materialId)
+        : null;
+
+      if (material) {
+        materialIds.add(material.id);
+      }
+    }
+
+    return [...baseToolIds].flatMap((baseToolId) => {
+      const baseTool = this.#itemDefinitionFor(baseToolId);
+
+      if (!baseTool || baseTool.kind !== "tool") {
+        return [];
+      }
+
+      return [...materialIds].map((materialId): Recipe => {
+        const materialItemId = itemIdForMaterial(materialId);
+        const outputItemId = modifiedToolItemId(baseToolId, materialId);
+        const output = this.#itemDefinitionFor(outputItemId);
+
+        return {
+          id: modifiedToolRecipeId(baseToolId, materialId),
+          displayName: output?.displayName ?? `Enhanced ${baseTool.shortName}`,
+          station: "assembler",
+          type: "shapeless",
+          inputs: [
+            { itemId: baseToolId, count: 1 },
+            { itemId: materialItemId, count: 1 },
+          ],
+          outputs: [{ itemId: outputItemId, count: 1 }],
+        };
+      });
+    });
   }
 }

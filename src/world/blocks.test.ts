@@ -4,6 +4,7 @@ import { TerrainMaterial } from "../geometry/terrainChunk.ts";
 import {
   BLOCK_DEFINITIONS,
   blockDefinitionFor,
+  materialProcessingStationTypeForBlock,
   minedDrop,
   minedDrops,
 } from "./blocks.ts";
@@ -56,12 +57,30 @@ describe("block registry", () => {
     const dynamicMaterial = blockDefinitionFor(TerrainMaterial.DynamicMaterial);
 
     expect(dynamicMaterial).toMatchObject({
-      id: "dynamic_material",
-      displayName: "Dynamic Material",
+      id: "dynamic_material_block",
+      displayName: "Stabilized Material",
       placeable: true,
       breakable: true,
       solid: true,
     });
+  });
+
+  it("registers material processing station blocks", () => {
+    expect(blockDefinitionFor(TerrainMaterial.ElementCombiner)).toMatchObject({
+      id: "element_combiner",
+      displayName: "Element Combiner",
+      placeable: true,
+      breakable: true,
+    });
+    expect(
+      materialProcessingStationTypeForBlock(TerrainMaterial.ElementCombiner),
+    ).toBe("combiner");
+    expect(
+      materialProcessingStationTypeForBlock(TerrainMaterial.ForgeStation),
+    ).toBe("forge");
+    expect(
+      materialProcessingStationTypeForBlock(TerrainMaterial.AssemblerStation),
+    ).toBe("assembler");
   });
 
   it("registers unique numeric ids", () => {

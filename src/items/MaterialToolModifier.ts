@@ -13,6 +13,8 @@ export type MaterialToolModifier = Readonly<{
   speedMultiplier: number;
   preferredBlockBonus: number;
   instabilityRisk: number;
+  enchantPotential: number;
+  dangerous: boolean;
 }>;
 
 export type ModifiedToolStats = Readonly<{
@@ -63,6 +65,7 @@ export function materialToolModifier(
   );
   const speedMultiplier = clamp(
     1 +
+      material.hardness * 0.003 +
       material.conductivity * 0.004 +
       material.magic * 0.003 +
       material.crystal * 0.002 +
@@ -80,12 +83,20 @@ export function materialToolModifier(
     0,
     1.5,
   );
+  const enchantPotential = clamp(
+    material.magic * 0.01 + material.crystal * 0.002,
+    0,
+    1.4,
+  );
+  const dangerous = material.toxicity >= 60 || material.radioactivity >= 45;
 
   return {
     durabilityMultiplier: round(durabilityMultiplier),
     speedMultiplier: round(speedMultiplier),
     preferredBlockBonus: round(preferredBlockBonus),
     instabilityRisk: round(instabilityRisk),
+    enchantPotential: round(enchantPotential),
+    dangerous,
   };
 }
 
@@ -111,6 +122,8 @@ export function modifiedToolStatsForMaterial(
       ),
       preferredBlockBonus: modifier.preferredBlockBonus,
       instabilityRisk: modifier.instabilityRisk,
+      enchantPotential: modifier.enchantPotential,
+      dangerous: modifier.dangerous,
       materialId: material.id,
     },
     modifier,

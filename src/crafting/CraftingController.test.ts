@@ -48,6 +48,15 @@ describe("crafting controller", () => {
       "wooden_pickaxe",
       "wooden_axe",
       "wooden_shovel",
+      "element_combiner_station",
+      "forge_station_iron",
+      "forge_station_copper",
+      "crystallizer_station",
+      "distiller_station",
+      "stabilizer_station",
+      "infuser_station",
+      "assembler_station_iron",
+      "assembler_station_copper",
     ]);
   });
 
@@ -66,6 +75,19 @@ describe("crafting controller", () => {
     expect(controller.craft("wood_to_planks")).toBe(true);
     expect(inventory.counts.get("block:wood")).toBe(0);
     expect(inventory.counts.get("block:planks")).toBe(4);
+  });
+
+  it("crafts material processing station block items", () => {
+    const inventory = createInventory([
+      ["material:crystal", 1],
+      ["block:planks", 1],
+      ["block:stone", 1],
+    ]);
+    const controller = new CraftingController(inventory);
+
+    expect(controller.craft("element_combiner_station")).toBe(true);
+    expect(inventory.counts.get("material:crystal")).toBe(0);
+    expect(inventory.counts.get("block:element_combiner")).toBe(1);
   });
 
   it("does not consume ingredients in creative mode", () => {

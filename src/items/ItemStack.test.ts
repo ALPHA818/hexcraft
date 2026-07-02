@@ -80,6 +80,21 @@ describe("item stacks", () => {
     expect(equippedToolForItem("block:dirt").kind).toBe("hand");
   });
 
+  it("resolves station block items as placeable", () => {
+    expect(blockItemIdForMaterial(TerrainMaterial.ElementCombiner)).toBe(
+      "block:element_combiner",
+    );
+    expect(placeableMaterialForItem("block:element_combiner")).toBe(
+      TerrainMaterial.ElementCombiner,
+    );
+    expect(itemDefinitionFor("block:forge_station")).toMatchObject({
+      kind: "block",
+      displayName: "Forge Station",
+      placeable: true,
+      material: TerrainMaterial.ForgeStation,
+    });
+  });
+
   it("creates raw ore material stacks", () => {
     expect(createItemStack("material:coal", 3)).toEqual({
       itemId: "material:coal",

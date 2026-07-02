@@ -11,6 +11,7 @@ import {
   BLOCK_PLACEMENT_REACH,
   type BlockPlacementInput,
   type BlockPlacementWorld,
+  validateMaterialStationInteraction,
   validateBlockPlacement,
 } from "./BlockPlacementRules.ts";
 
@@ -231,5 +232,45 @@ describe("block placement rules", () => {
       ok: false,
       reason: "unloaded",
     });
+  });
+
+  it("interacts with material station blocks", () => {
+    expect(
+      validateMaterialStationInteraction({
+        target: {
+          voxel: { q: 1, r: 0, level: 2 },
+          material: TerrainMaterial.ElementCombiner,
+          distance: 3,
+        },
+      }),
+    ).toMatchObject({
+      ok: true,
+      stationType: "combiner",
+      position: { q: 1, r: 0, level: 2 },
+    });
+    expect(
+      validateMaterialStationInteraction({
+        target: {
+          voxel: { q: 1, r: 0, level: 2 },
+          material: TerrainMaterial.ForgeStation,
+          distance: 3,
+        },
+      }),
+    ).toMatchObject({
+      ok: true,
+      stationType: "forge",
+    });
+  });
+
+  it("does not interact with non-station blocks", () => {
+    expect(
+      validateMaterialStationInteraction({
+        target: {
+          voxel: { q: 1, r: 0, level: 2 },
+          material: TerrainMaterial.Stone,
+          distance: 3,
+        },
+      }),
+    ).toEqual({ ok: false, reason: "not_station" });
   });
 });

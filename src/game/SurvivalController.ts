@@ -5,7 +5,6 @@ import {
   DEFAULT_MATERIAL_CONFIG,
   type MaterialConfig,
 } from "../materials/MaterialConfig.ts";
-import type { MaterialRegistry } from "../materials/MaterialRegistry.ts";
 import {
   biomeAt,
   caveAt,
@@ -15,6 +14,10 @@ import {
   type TerrainStreamUpdate,
   type VoxelRaycastHit,
 } from "../world/InfiniteTerrain.ts";
+import {
+  dynamicMaterialBlockDisplayName,
+  isDynamicMaterialBlock,
+} from "../world/DynamicMaterialBlocks.ts";
 import { blockDefinitionFor } from "../world/blocks.ts";
 import { ALL_VOXEL_DIRECTIONS, neighborOf } from "../world/voxelRules.ts";
 import { TargetHighlight } from "../ui/TargetHighlight.ts";
@@ -24,12 +27,15 @@ import {
 } from "./BlockBreakingController.ts";
 import {
   validateBlockPlacement,
+  validateMaterialStationInteraction,
   type BlockPlacementFailure,
   type BlockPlacementFailureReason,
 } from "./BlockPlacementRules.ts";
 import { Inventory } from "./Inventory.ts";
 import { applyMaterialDropRules } from "./MaterialDropRules.ts";
+import type { MaterialWorldController } from "./MaterialWorldController.ts";
 import type { GameMode } from "./gameMode.ts";
+import type { MaterialProcessingStationType } from "../materials/MaterialTypes.ts";
 
 export class SurvivalController {
   readonly #canvas: HTMLCanvasElement;
@@ -41,8 +47,11 @@ export class SurvivalController {
   readonly #onTerrainEdited: () => void;
   readonly #breaking: BlockBreakingController;
   readonly #audio: AudioManager | null;
-  readonly #materialRegistry: MaterialRegistry | null;
+  readonly #materialWorld: MaterialWorldController | null;
   readonly #onMaterialDiscovery: () => void;
+  readonly #openMaterialStation: (
+    stationType: MaterialProcessingStationType,
+  ) => void;
   readonly #worldSeed: number;
   readonly #materialDiscoveryConfig: Partial<
     Pick<MaterialConfig, "materialTraceDiscoveryChance" | "seed">
@@ -66,8 +75,11 @@ export class SurvivalController {
     mode: GameMode = "survival",
     onTerrainEdited: () => void = () => {},
     audio: AudioManager | null = null,
-    materialRegistry: MaterialRegistry | null = null,
+    materialWorld: MaterialWorldController | null = null,
     onMaterialDiscovery: () => void = () => {},
+    openMaterialStation: (
+      stationType: MaterialProcessingStationType,
+    ) => void = () => {},
     worldSeed: number = DEFAULT_WORLD_SEED,
     materialDiscoveryConfig: Partial<
       Pick<MaterialConfig, "materialTraceDiscoveryChance" | "seed">
@@ -86,8 +98,9 @@ export class SurvivalController {
     this.#onWorldUpdate = onWorldUpdate;
     this.#onTerrainEdited = onTerrainEdited;
     this.#audio = audio;
-    this.#materialRegistry = materialRegistry;
+    this.#materialWorld = materialWorld;
     this.#onMaterialDiscovery = onMaterialDiscovery;
+    this.#openMaterialStation = openMaterialStation;
     this.#worldSeed = worldSeed;
     this.#materialDiscoveryConfig = materialDiscoveryConfig;
     this.#isCreative = mode === "creative";
@@ -152,11 +165,15 @@ export class SurvivalController {
 
     this.#crosshair.classList.toggle("has-target", this.#target !== null);
     this.#crosshair.classList.toggle("has-mineable-target", hasMineableTarget);
+    const targetName = this.#target
+      ? this.#targetDisplayName(this.#target)
+      : "";
+
     this.#crosshair.title = this.#target
-      ? `${this.#target.block.displayName} · ${this.#target.face} face · level ${this.#target.voxel.level}`
+      ? `${targetName} · ${this.#target.face} face · level ${this.#target.voxel.level}`
       : "";
     this.#debugTargetLabel.textContent = this.#target
-      ? `${this.#target.block.displayName} · ${this.#target.face} · ${this.#target.distance.toFixed(1)}m`
+      ? `${targetName} · ${this.#target.face} · ${this.#target.distance.toFixed(1)}m`
       : "";
     this.#targetHighlight.update(this.#target, this.#camera);
     this.#breaking.update(this.#target, deltaSeconds);
@@ -195,10 +212,9 @@ export class SurvivalController {
       return;
     }
 
-    const dynamicMaterialId =
-      target.material === TerrainMaterial.DynamicMaterial
-        ? this.#world.dynamicMaterialIdAt(target.voxel)
-        : null;
+    const dynamicMaterialId = isDynamicMaterialBlock(target.material)
+      ? this.#world.dynamicMaterialIdAt(target.voxel)
+      : null;
     const update = this.#world.setBlockAsync(target.voxel, TerrainMaterial.Air);
 
     if (!update) {
@@ -209,7 +225,7 @@ export class SurvivalController {
       const drops = applyMaterialDropRules(
         target.material,
         this.#inventory,
-        this.#materialRegistry,
+        this.#materialWorld,
         {
           dynamicMaterialId,
           discoveryContext: {
@@ -245,6 +261,17 @@ export class SurvivalController {
       .catch((error) => console.error("Terrain remesh failed.", error));
   }
 
+  #targetDisplayName(target: VoxelRaycastHit): string {
+    if (!isDynamicMaterialBlock(target.material)) {
+      return target.block.displayName;
+    }
+
+    return dynamicMaterialBlockDisplayName(
+      this.#world.dynamicMaterialIdAt(target.voxel),
+      this.#materialWorld,
+    );
+  }
+
   #isNearNaturalCave(position: VoxelRaycastHit["voxel"]): boolean {
     const candidates = [
       position,
@@ -272,6 +299,10 @@ export class SurvivalController {
 
   place(): void {
     if (!this.#isActive) {
+      return;
+    }
+
+    if (this.#interactWithTargetStation()) {
       return;
     }
 
@@ -344,6 +375,20 @@ export class SurvivalController {
         }
       })
       .catch((error) => console.error("Terrain remesh failed.", error));
+  }
+
+  #interactWithTargetStation(): boolean {
+    const interaction = validateMaterialStationInteraction({
+      target: this.#target,
+    });
+
+    if (!interaction.ok) {
+      return false;
+    }
+
+    this.stopMining();
+    this.#openMaterialStation(interaction.stationType);
+    return true;
   }
 
   #showPlacementFailure(failure: BlockPlacementFailure): void {

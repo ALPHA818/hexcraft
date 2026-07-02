@@ -98,6 +98,7 @@ describe("material world controller", () => {
         ["element:oxygen"],
         ["metallurgical"],
       ),
+      mode: "survival",
     });
 
     expect(controller.registry.allMaterials()).toHaveLength(BASE_ELEMENT_COUNT);
@@ -111,6 +112,7 @@ describe("material world controller", () => {
   it("discovers base materials without duplicating discoveries", () => {
     const controller = new MaterialWorldController({
       materialCodex: emptyMaterialCodexSave(BASIC_STARTING_ELEMENT_IDS),
+      mode: "survival",
     });
 
     expect(controller.hasDiscovered("element:gold")).toBe(false);
@@ -134,7 +136,10 @@ describe("material world controller", () => {
 
     expect(controller.discoverMaterial("element:gold")).toBe(true);
 
-    const reloaded = new MaterialWorldController(controller.serialize());
+    const reloaded = new MaterialWorldController({
+      materialCodex: controller.serialize(),
+      mode: "survival",
+    });
 
     expect(reloaded.serialize().discoveredMaterialIds).toEqual(
       [...BASIC_STARTING_ELEMENT_IDS, "element:gold"].sort(),

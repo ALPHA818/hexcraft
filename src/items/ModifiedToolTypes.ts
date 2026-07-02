@@ -10,6 +10,8 @@ export type ModifiableBaseToolItemId =
 
 export type ModifiedToolItemId =
   `modified-tool:${ModifiableBaseToolItemId}:${string}`;
+export type ModifiedToolRecipeId =
+  `assembler:${ModifiableBaseToolItemId}:${string}`;
 
 export type ModifiedToolItemParts = Readonly<{
   baseToolId: ModifiableBaseToolItemId;
@@ -21,6 +23,13 @@ export function modifiedToolItemId(
   materialId: string,
 ): ModifiedToolItemId {
   return `modified-tool:${baseToolId}:${materialId}` as ModifiedToolItemId;
+}
+
+export function modifiedToolRecipeId(
+  baseToolId: ModifiableBaseToolItemId,
+  materialId: string,
+): ModifiedToolRecipeId {
+  return `assembler:${baseToolId}:${materialId}` as ModifiedToolRecipeId;
 }
 
 export function modifiedToolPartsFromItemId(

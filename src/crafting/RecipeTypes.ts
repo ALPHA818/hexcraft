@@ -1,6 +1,7 @@
 import type { ItemId } from "../items/ItemRegistry.ts";
 
-export type CraftingStation = "inventory" | "crafting_table" | "furnace";
+export type CraftingStation =
+  "inventory" | "crafting_table" | "furnace" | "assembler";
 
 export type RecipeStack = Readonly<{
   itemId: ItemId;
