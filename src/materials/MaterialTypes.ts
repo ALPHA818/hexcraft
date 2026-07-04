@@ -4,12 +4,14 @@ export type MaterialRarity =
   "common" | "uncommon" | "rare" | "epic" | "legendary" | "mythic";
 
 export type MaterialResearchTier =
+  | "primitive"
+  | "chemical"
   | "metallurgical"
   | "crystalline"
-  | "alchemical"
-  | "volatile"
   | "arcane"
-  | "radiological";
+  | "radioactive"
+  | "void"
+  | "celestial";
 
 export type MaterialProcessingStationType =
   | "combiner"

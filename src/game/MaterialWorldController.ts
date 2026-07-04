@@ -4,11 +4,19 @@ import {
   type MaterialConfig,
 } from "../materials/MaterialConfig.ts";
 import { BASE_ELEMENT_MATERIALS } from "../materials/BaseElements.ts";
-import { combineMaterials } from "../materials/MaterialCombiner.ts";
+import {
+  combineMaterials,
+  previewMaterialCombinationResearch,
+  type MaterialCombinationResearchPreview,
+} from "../materials/MaterialCombiner.ts";
 import { MaterialRegistry } from "../materials/MaterialRegistry.ts";
 import {
   createMaterialResearchState,
+  isMaterialResearchTierUnlocked,
+  normalizeMaterialResearchTier,
   type MaterialResearchMode,
+  unlockMaterialResearchTier,
+  type MaterialResearchTier,
   type MaterialResearchState,
 } from "../materials/MaterialResearch.ts";
 import { isMaterialProcessingStationType } from "../materials/MaterialStations.ts";
@@ -122,6 +130,32 @@ export class MaterialWorldController {
     return serializeMaterialCodex(this.#registry, this.#research.unlockedTiers);
   }
 
+  unlockedResearchTiers(): readonly MaterialResearchTier[] {
+    return this.#research.unlockedTiers;
+  }
+
+  isResearchTierUnlocked(tier: MaterialResearchTier): boolean {
+    return this.#research.unlockedTiers.includes(tier);
+  }
+
+  canUseResearchTier(tier: MaterialResearchTier): boolean {
+    return isMaterialResearchTierUnlocked(tier, {
+      mode: this.#mode,
+      research: this.#research,
+    });
+  }
+
+  unlockResearchTier(tier: MaterialResearchTier): boolean {
+    const normalizedTier = normalizeMaterialResearchTier(tier);
+
+    if (!normalizedTier || this.isResearchTierUnlocked(normalizedTier)) {
+      return false;
+    }
+
+    this.#research = unlockMaterialResearchTier(this.#research, normalizedTier);
+    return true;
+  }
+
   discoverMaterial(materialId: string): boolean {
     return this.#registry.discoverMaterial(materialId);
   }
@@ -159,6 +193,35 @@ export class MaterialWorldController {
     }
 
     return combineMaterials(
+      parentA,
+      parentB,
+      this.#registry,
+      this.#config,
+      {
+        mode: this.#mode,
+        research: this.#research,
+      },
+      stationType,
+    );
+  }
+
+  previewResearchRequirement(
+    parentAId: string,
+    parentBId: string,
+    stationType: MaterialProcessingStationType = "combiner",
+  ): MaterialCombinationResearchPreview | null {
+    if (!isMaterialProcessingStationType(stationType)) {
+      return null;
+    }
+
+    const parentA = this.#registry.getMaterialById(parentAId);
+    const parentB = this.#registry.getMaterialById(parentBId);
+
+    if (!parentA || !parentB) {
+      return null;
+    }
+
+    return previewMaterialCombinationResearch(
       parentA,
       parentB,
       this.#registry,

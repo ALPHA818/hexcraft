@@ -8,21 +8,36 @@ import type {
 export type { MaterialResearchTier } from "./MaterialTypes.ts";
 
 export const MATERIAL_RESEARCH_TIERS = [
+  "primitive",
+  "chemical",
   "metallurgical",
   "crystalline",
-  "alchemical",
-  "volatile",
   "arcane",
-  "radiological",
+  "radioactive",
+  "void",
+  "celestial",
 ] as const satisfies readonly MaterialResearchTier[];
 
 export const MATERIAL_RESEARCH_TIER_LABELS = {
+  primitive: "Primitive Research",
+  chemical: "Chemical Research",
   metallurgical: "Metallurgical Research",
   crystalline: "Crystalline Research",
-  alchemical: "Alchemical Research",
-  volatile: "Volatile Research",
   arcane: "Arcane Research",
-  radiological: "Radiological Research",
+  radioactive: "Radioactive Research",
+  void: "Void Research",
+  celestial: "Celestial Research",
+} as const satisfies Record<MaterialResearchTier, string>;
+
+export const MATERIAL_RESEARCH_TIER_DISPLAY_NAMES = {
+  primitive: "Primitive",
+  chemical: "Chemical",
+  metallurgical: "Metallurgical",
+  crystalline: "Crystalline",
+  arcane: "Arcane",
+  radioactive: "Radioactive",
+  void: "Void",
+  celestial: "Celestial",
 } as const satisfies Record<MaterialResearchTier, string>;
 
 export type MaterialResearchMode = "creative" | "survival";
@@ -44,6 +59,12 @@ export type ResearchTierSource = Readonly<{
 
 const MATERIAL_RESEARCH_TIER_SET = new Set<string>(MATERIAL_RESEARCH_TIERS);
 
+const LEGACY_RESEARCH_TIER_ALIASES = {
+  alchemical: "chemical",
+  volatile: "primitive",
+  radiological: "radioactive",
+} as const satisfies Record<string, MaterialResearchTier>;
+
 function normalizeTag(tag: string): string {
   return tag.trim().toLowerCase().replaceAll(/\s+/g, "-");
 }
@@ -57,8 +78,25 @@ function hasTag(
   return candidates.some((candidate) => normalizedTags.has(candidate));
 }
 
-function isMaterialResearchTier(value: unknown): value is MaterialResearchTier {
-  return typeof value === "string" && MATERIAL_RESEARCH_TIER_SET.has(value);
+export function normalizeMaterialResearchTier(
+  value: unknown,
+): MaterialResearchTier | undefined {
+  if (typeof value !== "string") {
+    return undefined;
+  }
+
+  if (MATERIAL_RESEARCH_TIER_SET.has(value)) {
+    return value as MaterialResearchTier;
+  }
+
+  return Object.prototype.hasOwnProperty.call(
+    LEGACY_RESEARCH_TIER_ALIASES,
+    value,
+  )
+    ? LEGACY_RESEARCH_TIER_ALIASES[
+        value as keyof typeof LEGACY_RESEARCH_TIER_ALIASES
+      ]
+    : undefined;
 }
 
 export function createMaterialResearchState(
@@ -82,7 +120,9 @@ export function normalizeMaterialResearchState(
 
   const record = value as Record<string, unknown>;
   const unlockedTiers = Array.isArray(record.unlockedTiers)
-    ? record.unlockedTiers.filter(isMaterialResearchTier)
+    ? record.unlockedTiers
+        .map(normalizeMaterialResearchTier)
+        .filter((tier): tier is MaterialResearchTier => tier !== undefined)
     : [];
 
   return createMaterialResearchState(unlockedTiers);
@@ -174,9 +214,15 @@ export function requiredResearchTierForGeneratedMaterial(
     stats.radioactivity >= 78 ||
     hasTag(tags, ["radioactive", "radiological", "reactor", "uranium"])
   ) {
-    return "radiological";
+    return "radioactive";
   }
-  if (stats.magic >= 78 || hasTag(tags, ["void", "arcane", "eldritch"])) {
+  if (hasTag(tags, ["celestial", "star", "light"]) && stats.magic >= 72) {
+    return "celestial";
+  }
+  if (hasTag(tags, ["void", "eldritch"])) {
+    return "void";
+  }
+  if (stats.magic >= 78 || hasTag(tags, ["arcane"])) {
     return "arcane";
   }
 
@@ -188,9 +234,9 @@ export function requiredResearchTierForGeneratedMaterial(
     stats.radioactivity >= 55 ||
     hasTag(tags, ["radioactive", "radiological", "unstable"])
   ) {
-    return "radiological";
+    return "radioactive";
   }
-  if (stats.magic >= 58 || hasTag(tags, ["magic", "arcane", "void"])) {
+  if (stats.magic >= 58 || hasTag(tags, ["magic", "arcane"])) {
     return "arcane";
   }
   if (
@@ -202,15 +248,15 @@ export function requiredResearchTierForGeneratedMaterial(
   if (stats.crystal >= 58 || hasTag(tags, ["crystal", "crystalline"])) {
     return "crystalline";
   }
-  if (stats.toxicity >= 55 || hasTag(tags, ["toxic", "poison", "alchemical"])) {
-    return "alchemical";
+  if (stats.toxicity >= 55 || hasTag(tags, ["toxic", "poison", "chemical"])) {
+    return "chemical";
   }
   if (
     stats.gas >= 65 ||
     stats.heat >= 76 ||
     hasTag(tags, ["gas", "volatile", "explosive"])
   ) {
-    return "volatile";
+    return "primitive";
   }
 
   return undefined;

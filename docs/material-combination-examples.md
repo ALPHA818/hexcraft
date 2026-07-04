@@ -41,18 +41,20 @@ The processing station is part of the recipe key.
 | Toxic + Water       | `distiller`    | Liquid/gas leaning result with distilled tags.                                        |
 | Radioactive + Metal | `stabilizer`   | Stability pressure can be countered by station modifiers, but danger remains visible. |
 
-Only the combiner UI exists today. Other station types are architecture hooks for future UI and crafting stations.
+Placeable station blocks can open the material combiner panel with the matching station type. Station-specific specialist UIs can still be added later.
 
 ## Research Examples
 
-| Material or reaction trait                                  | Tier            |
-| ----------------------------------------------------------- | --------------- |
-| Metal, metallic, alloy, forged                              | `metallurgical` |
-| Crystal or crystalline                                      | `crystalline`   |
-| Toxic, poison, alchemical                                   | `alchemical`    |
-| Gas, volatile, explosive, high heat                         | `volatile`      |
-| Magic, arcane, void, very high magic                        | `arcane`        |
-| Radioactive, radiological, uranium, very high radioactivity | `radiological`  |
+| Material or reaction trait                    | Tier            |
+| --------------------------------------------- | --------------- |
+| Metal, metallic, alloy, forged                | `metallurgical` |
+| Crystal or crystalline                        | `crystalline`   |
+| Toxic, poison, chemical                       | `chemical`      |
+| Gas, volatile, explosive, high heat           | `primitive`     |
+| Magic, arcane, void, very high magic          | `arcane`        |
+| Radioactive, uranium, very high radioactivity | `radioactive`   |
+| Void or extremely unstable late-game traits   | `void`          |
+| Celestial late-game traits                    | `celestial`     |
 
 Creative mode ignores research requirements. Survival mode blocks locked combinations and returns a readable message such as:
 

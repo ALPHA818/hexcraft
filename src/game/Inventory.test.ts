@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { TerrainMaterial } from "../geometry/terrainChunk.ts";
 import {
+  itemDefinitionFor,
   itemIdForMaterial,
   modifiedToolItemId,
   modifiedToolRecipeId,
@@ -9,8 +10,18 @@ import {
 import { createItemStack } from "../items/ItemStack.ts";
 import { combineMaterials } from "../materials/MaterialCombiner.ts";
 import { MaterialRegistry } from "../materials/MaterialRegistry.ts";
+import {
+  materialVisualsForMaterial,
+  UNKNOWN_MATERIAL_VISUALS,
+} from "../materials/MaterialVisuals.ts";
 import type { MaterialDefinition } from "../materials/MaterialTypes.ts";
-import { Inventory, minedDrop } from "./Inventory.ts";
+import {
+  applyGeneratedMaterialVisual,
+  Inventory,
+  inventoryVisualsForItem,
+  minedDrop,
+} from "./Inventory.ts";
+import { MaterialStorage } from "./MaterialStorage.ts";
 
 function createElementStub(): HTMLElement {
   return {
@@ -18,6 +29,7 @@ function createElementStub(): HTMLElement {
     append: vi.fn(),
     classList: { add: vi.fn(), toggle: vi.fn() },
     replaceChildren: vi.fn(),
+    style: { setProperty: vi.fn() },
   } as unknown as HTMLElement;
 }
 
@@ -228,6 +240,80 @@ describe("survival inventory drops", () => {
         .slots?.filter((slot) => slot?.itemId === itemId)
         .map((slot) => slot?.count),
     ).toEqual([64, 1]);
+  });
+
+  it("moves generated material items into material storage", () => {
+    stubInventoryDocument();
+    const registry = materialRegistry();
+    const material = generatedMaterial("generated:stored-block", 82);
+    const storage = new MaterialStorage();
+    const onStorageChanged = vi.fn();
+
+    registry.registerGeneratedMaterial(material);
+    const inventory = new Inventory(
+      "survival",
+      () => {},
+      registry,
+      () => {},
+      storage,
+      onStorageChanged,
+    );
+    const itemId = itemIdForMaterial(material.id);
+
+    expect(inventory.addItem(itemId, 3)).toBe(true);
+    expect(inventory.storeGeneratedMaterialItem(itemId, 2)).toBe(true);
+    expect(inventory.countItem(itemId)).toBe(1);
+    expect(storage.count(material.id)).toBe(2);
+    expect(onStorageChanged).toHaveBeenCalledOnce();
+    expect(inventory.storeGeneratedMaterialItem("material:coal", 1)).toBe(
+      false,
+    );
+  });
+
+  it("renders generated material item swatches from visual data", () => {
+    const registry = materialRegistry();
+    const material = generatedMaterial("generated:visual-block", 82);
+
+    registry.registerGeneratedMaterial(material);
+    const item = itemDefinitionFor(itemIdForMaterial(material.id), registry);
+    const element = createElementStub();
+    const expected = materialVisualsForMaterial(material);
+
+    expect(inventoryVisualsForItem(item)).toEqual(expected);
+    applyGeneratedMaterialVisual(element, item);
+
+    expect(element.classList.add).toHaveBeenCalledWith(
+      "generated-material-visual",
+    );
+    expect(element.style.setProperty).toHaveBeenCalledWith(
+      "--item-base-color",
+      expected.baseColor,
+    );
+    expect(element.style.setProperty).toHaveBeenCalledWith(
+      "--item-accent-color",
+      expected.accentColor,
+    );
+  });
+
+  it("uses fallback swatch visuals for unknown generated material items", () => {
+    const registry = materialRegistry();
+    const item = itemDefinitionFor(
+      itemIdForMaterial("generated:missing-visual"),
+      registry,
+    );
+    const element = createElementStub();
+
+    expect(inventoryVisualsForItem(item)).toEqual(UNKNOWN_MATERIAL_VISUALS);
+    applyGeneratedMaterialVisual(element, item);
+
+    expect(element.style.setProperty).toHaveBeenCalledWith(
+      "--item-base-color",
+      UNKNOWN_MATERIAL_VISUALS.baseColor,
+    );
+    expect(element.style.setProperty).toHaveBeenCalledWith(
+      "--item-accent-color",
+      UNKNOWN_MATERIAL_VISUALS.accentColor,
+    );
   });
 
   it("can visibly grant generated material items in creative mode", () => {

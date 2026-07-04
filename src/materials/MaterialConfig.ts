@@ -4,6 +4,8 @@ export type MaterialConfig = Readonly<{
   maxGenerationDepth: number;
   orderMatters: boolean;
   unstableCombinationsCanFail: boolean;
+  enableMaterialHazards: boolean;
+  hazardDamageInterval: number;
   materialTraceDiscoveryChance: number;
   seed: number;
   statMin: number;
@@ -17,6 +19,8 @@ export const DEFAULT_MATERIAL_CONFIG: MaterialConfig = {
   maxGenerationDepth: 12,
   orderMatters: false,
   unstableCombinationsCanFail: false,
+  enableMaterialHazards: true,
+  hazardDamageInterval: 2,
   materialTraceDiscoveryChance: 0.08,
   seed: 0x484558,
   statMin: 0,
@@ -46,6 +50,14 @@ export function normalizeMaterialConfig(
     unstableCombinationsCanFail:
       config.unstableCombinationsCanFail ??
       DEFAULT_MATERIAL_CONFIG.unstableCombinationsCanFail,
+    enableMaterialHazards:
+      config.enableMaterialHazards ??
+      DEFAULT_MATERIAL_CONFIG.enableMaterialHazards,
+    hazardDamageInterval:
+      config.hazardDamageInterval !== undefined &&
+      Number.isFinite(config.hazardDamageInterval)
+        ? Math.max(0.1, Number(config.hazardDamageInterval))
+        : DEFAULT_MATERIAL_CONFIG.hazardDamageInterval,
     materialTraceDiscoveryChance:
       config.materialTraceDiscoveryChance !== undefined &&
       Number.isFinite(config.materialTraceDiscoveryChance)

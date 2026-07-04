@@ -13,6 +13,7 @@ import type {
   MaterialDefinition,
   MaterialProcessingStationType,
 } from "../materials/MaterialTypes.ts";
+import { MATERIAL_RESEARCH_TIER_DISPLAY_NAMES } from "../materials/MaterialResearch.ts";
 import {
   MaterialStatsView,
   type MaterialRecipeLine,
@@ -395,6 +396,11 @@ export class MaterialCombinerPanel {
       parentBId,
       this.#selectedStation,
     );
+    const researchPreview = controller.previewResearchRequirement(
+      parentAId,
+      parentBId,
+      this.#selectedStation,
+    );
     const title = document.createElement("h3");
     const affordability = controller.canAfford(parentAId, parentBId);
 
@@ -425,12 +431,39 @@ export class MaterialCombinerPanel {
       this.#previewRoot.append(warning);
     }
 
+    if (researchPreview?.requiredResearchTier) {
+      const required = document.createElement("p");
+
+      required.className = "material-combiner-research";
+      required.textContent = `Required tier: ${
+        MATERIAL_RESEARCH_TIER_DISPLAY_NAMES[
+          researchPreview.requiredResearchTier
+        ]
+      }`;
+      this.#previewRoot.append(required);
+    }
+
+    if (researchPreview?.lockedResearchTier) {
+      const warning = document.createElement("p");
+
+      warning.className = "material-combiner-warning";
+      warning.textContent =
+        researchPreview.message ??
+        `Requires ${
+          MATERIAL_RESEARCH_TIER_DISPLAY_NAMES[
+            researchPreview.lockedResearchTier
+          ]
+        }.`;
+      this.#previewRoot.append(warning);
+    }
+
     if (this.#message) {
       this.#messageRoot.textContent = this.#message.text;
       this.#messageRoot.classList.add(this.#message.tone);
     }
 
-    this.#combineButton.disabled = !affordability;
+    this.#combineButton.disabled =
+      !affordability || Boolean(researchPreview?.lockedResearchTier);
   }
 
   #combineSelected(): void {

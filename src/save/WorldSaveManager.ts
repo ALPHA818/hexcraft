@@ -17,6 +17,7 @@ import {
   type LoadedWorldSave,
   type SerializedInventory,
   type SerializedMaterialCodex,
+  type SerializedMaterialStorage,
   type SerializedPlayerState,
   type TerrainEditChunkSave,
   type WorldRuntimeStateSave,
@@ -29,6 +30,7 @@ export type SaveWorldPayload = Readonly<{
   inventory: SerializedInventory;
   gameTime?: SerializedGameTimeState;
   materialCodex?: SerializedMaterialCodex;
+  materialStorage?: SerializedMaterialStorage;
   terrainEditChunks: readonly Omit<TerrainEditChunkSave, "id" | "worldId">[];
 }>;
 
@@ -161,6 +163,10 @@ export class WorldSaveManager {
         } as Partial<WorldRuntimeStateSave>,
         defaultMaterialCodex,
       ).materialCodex,
+      materialStorage: runtimeStateWithDefaults(metadata.id, {
+        materialStorage:
+          payload.materialStorage ?? existingRuntime?.materialStorage,
+      }).materialStorage,
     };
     const terrainEditChunks = payload.terrainEditChunks.map((chunk) =>
       attachWorldIdToChunk(metadata.id, chunk),

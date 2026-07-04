@@ -35,8 +35,149 @@ import type {
   MaterialCombinationResult,
   MaterialDefinition,
   MaterialProcessingStationType,
+  MaterialResearchTier,
 } from "./MaterialTypes.ts";
 import { validateCombinationParents } from "./MaterialValidation.ts";
+
+export type MaterialCombinationResearchPreview = Readonly<{
+  recipeKey: string;
+  requiredResearchTier?: MaterialResearchTier;
+  lockedResearchTier: MaterialResearchTier | null;
+  message?: string;
+}>;
+
+export function previewMaterialCombinationResearch(
+  materialA: MaterialDefinition,
+  materialB: MaterialDefinition,
+  registry: MaterialRegistry,
+  config: MaterialConfig = DEFAULT_MATERIAL_CONFIG,
+  researchContext: MaterialResearchContext = {},
+  stationType: MaterialProcessingStationType = "combiner",
+): MaterialCombinationResearchPreview | null {
+  const normalizedConfig = normalizeMaterialConfig(config);
+  const recipeKey = recipeKeyForMaterialIds(
+    materialA.id,
+    materialB.id,
+    normalizedConfig,
+    stationType,
+  );
+  const existing = registry.getRecipeResult(
+    materialA.id,
+    materialB.id,
+    normalizedConfig,
+    stationType,
+  );
+  const validation = validateCombinationParents(
+    materialA,
+    materialB,
+    registry,
+    normalizedConfig,
+  );
+
+  if (validation) {
+    return null;
+  }
+
+  const parentIds = canonicalMaterialIds(
+    materialA.id,
+    materialB.id,
+    normalizedConfig,
+  );
+  const parents =
+    parentIds[0] === materialA.id
+      ? ([materialA, materialB] as const)
+      : ([materialB, materialA] as const);
+  const lockedParentTier = lockedParentMaterialResearchTier(
+    parents,
+    researchContext,
+  );
+
+  if (lockedParentTier) {
+    return {
+      recipeKey,
+      requiredResearchTier: lockedParentTier,
+      lockedResearchTier: lockedParentTier,
+      message: researchLockedCombinationFailure(lockedParentTier, recipeKey)
+        .message,
+    };
+  }
+
+  const preliminaryStats = combineMaterialStats(
+    parents[0],
+    parents[1],
+    recipeKey,
+    normalizedConfig,
+  );
+  const reaction = resolveMaterialReaction(
+    parents[0],
+    parents[1],
+    preliminaryStats,
+    recipeKey,
+    normalizedConfig,
+  );
+  const reactionTier = reaction?.requiredResearchTier;
+  const lockedReactionTier = lockedMaterialResearchTier(
+    reactionTier,
+    researchContext,
+  );
+
+  if (lockedReactionTier) {
+    return {
+      recipeKey,
+      requiredResearchTier: reactionTier,
+      lockedResearchTier: lockedReactionTier,
+      message: researchLockedCombinationFailure(lockedReactionTier, recipeKey)
+        .message,
+    };
+  }
+
+  const generation = Math.max(materialA.generation, materialB.generation) + 1;
+  const stationStats = applyMaterialStationModifiers(
+    combineMaterialStats(
+      parents[0],
+      parents[1],
+      recipeKey,
+      normalizedConfig,
+      reaction,
+    ),
+    stationType,
+    normalizedConfig,
+  );
+  const preliminaryTags = [
+    ...new Set([
+      ...tagsForMaterial(stationStats, parents, reaction),
+      ...materialStationTags(stationType),
+    ]),
+  ].sort();
+  const stats = balanceGeneratedMaterialStats(
+    stationStats,
+    generation,
+    normalizedConfig,
+    preliminaryTags,
+  );
+  const tags = [
+    ...new Set([
+      ...tagsForMaterial(stats, parents, reaction),
+      ...materialStationTags(stationType),
+    ]),
+  ].sort();
+  const requiredResearchTier =
+    existing?.requiredResearchTier ??
+    requiredResearchTierForGeneratedMaterial(stats, tags, reaction);
+  const lockedResearchTier = lockedMaterialResearchTier(
+    requiredResearchTier,
+    researchContext,
+  );
+
+  return {
+    recipeKey,
+    requiredResearchTier,
+    lockedResearchTier,
+    message: lockedResearchTier
+      ? researchLockedCombinationFailure(lockedResearchTier, recipeKey).message
+      : undefined,
+  };
+}
 
 export function combineMaterials(
   materialA: MaterialDefinition,

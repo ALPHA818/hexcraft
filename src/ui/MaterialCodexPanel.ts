@@ -1,4 +1,5 @@
 import type { MaterialRegistry } from "../materials/MaterialRegistry.ts";
+import type { MaterialStorage } from "../game/MaterialStorage.ts";
 import type {
   MaterialDefinition,
   MaterialRarity,
@@ -182,6 +183,7 @@ export class MaterialCodexPanel {
   readonly #onOpenChange: (isOpen: boolean) => void;
 
   #registry: MaterialRegistry | null = null;
+  #materialStorage: MaterialStorage | null = null;
   #query = "";
   #tag = "";
   #sort: MaterialCodexSort = "name";
@@ -216,6 +218,14 @@ export class MaterialCodexPanel {
 
     if (this.isOpen()) {
       this.#renderShell();
+      this.#renderMaterials();
+    }
+  }
+
+  setMaterialStorage(storage: MaterialStorage | null): void {
+    this.#materialStorage = storage;
+
+    if (this.isOpen()) {
       this.#renderMaterials();
     }
   }
@@ -454,6 +464,7 @@ export class MaterialCodexPanel {
 
     detailsRoot.replaceChildren(
       this.#statsView.render(materialStatsViewModel(material, registry)),
+      this.#createStorageStatus(material),
       ...(this.#debugActions?.isVisible()
         ? [this.#createDebugActions(material)]
         : []),
@@ -489,6 +500,18 @@ export class MaterialCodexPanel {
       this.#renderMaterials();
     });
     return row;
+  }
+
+  #createStorageStatus(material: MaterialDefinition): HTMLElement {
+    const status = document.createElement("p");
+    const count = this.#materialStorage?.count(material.id) ?? 0;
+
+    status.className = "material-codex-storage-status";
+    status.textContent =
+      count > 0
+        ? `In storage: ${count.toLocaleString()}`
+        : "Not in material storage";
+    return status;
   }
 
   #createDebugActions(material: MaterialDefinition): HTMLElement {

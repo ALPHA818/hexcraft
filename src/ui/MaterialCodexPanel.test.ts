@@ -14,7 +14,9 @@ import {
   materialCapabilityRows,
   materialMetadataRows,
   materialStatRows,
+  materialVisualRows,
 } from "./MaterialStatsView.ts";
+import { materialVisualsForMaterial } from "../materials/MaterialVisuals.ts";
 
 function registryWithDiscovery(): Readonly<{
   registry: MaterialRegistry;
@@ -141,5 +143,16 @@ describe("material codex panel helpers", () => {
     expect(materialBalanceRows(iron).map(([label]) => label)).toContain(
       "Value score",
     );
+    expect(
+      materialVisualRows(materialVisualsForMaterial(iron)).map(
+        ([label]) => label,
+      ),
+    ).toEqual([
+      "Base color",
+      "Accent color",
+      "Emissive strength",
+      "Metallic",
+      "Roughness",
+    ]);
   });
 });

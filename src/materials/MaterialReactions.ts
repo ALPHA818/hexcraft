@@ -113,7 +113,7 @@ const REACTION_RULES: readonly MaterialReactionRule[] = [
       stability: -30,
       toxicity: 8,
     },
-    requiredResearchTier: "volatile",
+    requiredResearchTier: "primitive",
     rarityBonus: 10,
   },
   {
@@ -127,7 +127,7 @@ const REACTION_RULES: readonly MaterialReactionRule[] = [
       stability: -8,
       toxicity: 32,
     },
-    requiredResearchTier: "alchemical",
+    requiredResearchTier: "chemical",
     rarityBonus: 8,
   },
   {
@@ -144,7 +144,7 @@ const REACTION_RULES: readonly MaterialReactionRule[] = [
       radioactivity: 30,
       stability: -25,
     },
-    requiredResearchTier: "radiological",
+    requiredResearchTier: "radioactive",
     rarityBonus: 18,
   },
   {
@@ -322,7 +322,7 @@ const REACTION_RULES: readonly MaterialReactionRule[] = [
       density: -8,
       gas: 10,
     },
-    requiredResearchTier: "volatile",
+    requiredResearchTier: "primitive",
     rarityBonus: 1,
   },
   {
@@ -337,7 +337,7 @@ const REACTION_RULES: readonly MaterialReactionRule[] = [
       density: -2,
       liquid: 10,
     },
-    requiredResearchTier: "alchemical",
+    requiredResearchTier: "chemical",
     rarityBonus: 1,
   },
 ];

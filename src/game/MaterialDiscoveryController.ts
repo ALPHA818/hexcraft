@@ -6,6 +6,7 @@ import type {
   MaterialResearchTier,
   MaterialUnstableReactionOutcome,
 } from "../materials/MaterialTypes.ts";
+import type { MaterialCombinationResearchPreview } from "../materials/MaterialCombiner.ts";
 import type { MaterialWorldController } from "./MaterialWorldController.ts";
 
 export type MaterialDiscoveryInventory = Readonly<{
@@ -131,6 +132,18 @@ export class MaterialDiscoveryController {
     stationType: MaterialProcessingStationType = "combiner",
   ): MaterialDefinition | null {
     return this.#materialWorld.getKnownResult(
+      parentAId,
+      parentBId,
+      stationType,
+    );
+  }
+
+  previewResearchRequirement(
+    parentAId: string,
+    parentBId: string,
+    stationType: MaterialProcessingStationType = "combiner",
+  ): MaterialCombinationResearchPreview | null {
+    return this.#materialWorld.previewResearchRequirement(
       parentAId,
       parentBId,
       stationType,

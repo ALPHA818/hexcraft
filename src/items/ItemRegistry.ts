@@ -55,7 +55,11 @@ export type StaticMaterialItemId =
   | "material:raw_copper"
   | "material:raw_iron"
   | "material:raw_gold"
-  | "material:crystal";
+  | "material:crystal"
+  | "material:fuel_cell"
+  | "material:magic_core"
+  | "material:explosive_compound"
+  | "material:circuit";
 export type MaterialItemId = StaticMaterialItemId | GeneratedMaterialItemId;
 export type StaticToolItemId = `tool:${ToolItemKind}`;
 export type ToolItemId = StaticToolItemId | ModifiedToolItemId;
@@ -222,6 +226,38 @@ const MATERIAL_ITEM_DEFINITIONS = [
     id: "material:crystal",
     displayName: "Crystal",
     shortName: "Crystal",
+    maxStackSize: 64,
+    placeable: false,
+    kind: "material",
+  },
+  {
+    id: "material:fuel_cell",
+    displayName: "Material Fuel Cell",
+    shortName: "Fuel Cell",
+    maxStackSize: 64,
+    placeable: false,
+    kind: "material",
+  },
+  {
+    id: "material:magic_core",
+    displayName: "Magic Core",
+    shortName: "Magic Core",
+    maxStackSize: 64,
+    placeable: false,
+    kind: "material",
+  },
+  {
+    id: "material:explosive_compound",
+    displayName: "Explosive Compound",
+    shortName: "Explosive",
+    maxStackSize: 64,
+    placeable: false,
+    kind: "material",
+  },
+  {
+    id: "material:circuit",
+    displayName: "Material Circuit",
+    shortName: "Circuit",
     maxStackSize: 64,
     placeable: false,
     kind: "material",

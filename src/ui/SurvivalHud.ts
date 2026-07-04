@@ -21,18 +21,25 @@ export class SurvivalHud {
   readonly #root: HTMLElement;
   readonly #bars = new Map<keyof PlayerStatsSnapshot, HudBar>();
   readonly #mode: GameMode;
+  readonly #warnings: HTMLElement;
+
+  #warningText = "";
 
   constructor(root: HTMLElement, mode: GameMode) {
     this.#root = root;
     this.#mode = mode;
+    this.#warnings = document.createElement("p");
+    this.#warnings.className = "survival-warnings";
+    this.#warnings.hidden = true;
     this.#root.className = "survival-hud";
     this.#root.replaceChildren(
       ...BAR_META.map(([key, label]) => this.#createBar(key, label)),
+      this.#warnings,
     );
     this.#root.hidden = mode !== "survival";
   }
 
-  update(stats: PlayerStatsSnapshot): void {
+  update(stats: PlayerStatsSnapshot, warnings: readonly string[] = []): void {
     this.#root.hidden = this.#mode !== "survival";
     if (this.#root.hidden) {
       return;
@@ -53,12 +60,14 @@ export class SurvivalHud {
     }
 
     this.#root.classList.toggle("is-dead", stats.isDead);
+    this.#updateWarnings(warnings);
   }
 
   destroy(): void {
     this.#root.hidden = true;
     this.#root.replaceChildren();
     this.#bars.clear();
+    this.#warningText = "";
   }
 
   #createBar(key: keyof PlayerStatsSnapshot, label: string): HTMLElement {
@@ -77,5 +86,15 @@ export class SurvivalHud {
     row.append(name, track, value);
     this.#bars.set(key, { root: row, fill, value });
     return row;
+  }
+
+  #updateWarnings(warnings: readonly string[]): void {
+    const text = warnings.join(" · ");
+
+    this.#warnings.hidden = text.length === 0;
+    if (text !== this.#warningText) {
+      this.#warningText = text;
+      this.#warnings.textContent = text;
+    }
   }
 }

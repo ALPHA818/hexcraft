@@ -162,7 +162,7 @@ describe("material research progression", () => {
         ["void"],
         { requiredResearchTier: "metallurgical" },
       ),
-    ).toBe("arcane");
+    ).toBe("void");
     expect(
       requiredResearchTierForGeneratedMaterial(
         {
@@ -172,7 +172,7 @@ describe("material research progression", () => {
         ["radioactive"],
         { requiredResearchTier: "metallurgical" },
       ),
-    ).toBe("radiological");
+    ).toBe("radioactive");
   });
 
   it("uses generated material tiers to control recursive crafting", () => {

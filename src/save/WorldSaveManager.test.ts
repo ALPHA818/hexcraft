@@ -83,6 +83,7 @@ describe("world save manager", () => {
     expect(save.runtime.materialCodex.generatedMaterials).toEqual([]);
     expect(save.runtime.materialCodex.recipeResults).toEqual([]);
     expect(save.runtime.materialCodex.unlockedResearchTiers).toEqual([]);
+    expect(save.runtime.materialStorage.materials).toEqual([]);
   });
 
   it("creates starting material codex with all base elements", () => {

@@ -74,22 +74,24 @@ Supported station types:
 
 The combiner is the default and preserves legacy recipe loading. Recipe keys include station type, so the same parents can produce different results in different stations.
 
-Station UIs are intentionally not implemented yet. Station behavior is currently architecture and data only.
+Placeable station blocks can open the material combiner panel with the station type preselected. Advanced station-specific UIs can still be added later.
 
 ## Research
 
 Research tiers:
 
+- `primitive`
+- `chemical`
 - `metallurgical`
 - `crystalline`
-- `alchemical`
-- `volatile`
 - `arcane`
-- `radiological`
+- `radioactive`
+- `void`
+- `celestial`
 
 Creative mode ignores research requirements. Survival mode enforces them for parent materials, reactions, and generated results.
 
-Very high magic or `void`/arcane tags escalate to `arcane`. Very high radioactivity or radiological/radioactive tags escalate to `radiological`, even if a reaction would otherwise request a lower tier.
+Legacy `alchemical`, `volatile`, and `radiological` saves are normalized to current tiers. Very high magic or `void`/arcane tags escalate to higher research. Very high radioactivity or radioactive tags escalate to radioactive research, even if a reaction would otherwise request a lower tier.
 
 ## Balance Scores
 

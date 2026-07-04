@@ -2,6 +2,7 @@ import {
   CraftingController,
   type CraftingInventory,
 } from "../crafting/CraftingController.ts";
+import { generatedMaterialRecipesForMaterials } from "../crafting/GeneratedMaterialRecipes.ts";
 import type { Recipe, RecipeStack } from "../crafting/RecipeTypes.ts";
 import { TerrainMaterial } from "../geometry/terrainChunk.ts";
 import {
@@ -13,10 +14,7 @@ import {
   ITEM_DEFINITIONS,
   itemDefinitionFor,
   itemDefinitionOrThrow,
-  itemIdForMaterial,
   materialIdFromItemId,
-  modifiedToolItemId,
-  modifiedToolRecipeId,
   placeableMaterialForItem,
   type ItemDefinition,
   type ItemId,
@@ -35,10 +33,16 @@ import {
   type ItemStack,
 } from "../items/ItemStack.ts";
 import type { EquippedTool } from "../items/ToolTypes.ts";
-import { materialVisualsForMaterial } from "../materials/MaterialVisuals.ts";
+import {
+  materialVisualsForMaterial,
+  UNKNOWN_MATERIAL_VISUALS,
+  type MaterialVisuals,
+} from "../materials/MaterialVisuals.ts";
+import type { MaterialDefinition } from "../materials/MaterialTypes.ts";
 import type { SerializedInventory } from "../save/WorldSaveTypes.ts";
 import { minedDrop as registryMinedDrop } from "../world/blocks.ts";
 import type { GameMode } from "./gameMode.ts";
+import type { MaterialStorage } from "./MaterialStorage.ts";
 
 export type InventoryItem = ItemDefinition;
 
@@ -75,19 +79,36 @@ function safeItemClass(itemId: string): string {
   return `item-${itemId.replace(/[^a-z0-9_-]/gi, "-")}`;
 }
 
-function applyGeneratedMaterialVisual(
+export function inventoryVisualsForItem(
+  item: ItemDefinition | null,
+): MaterialVisuals | null {
+  if (item?.kind !== "generated_material") {
+    return null;
+  }
+
+  return item.material
+    ? materialVisualsForMaterial(item.material)
+    : UNKNOWN_MATERIAL_VISUALS;
+}
+
+export function applyGeneratedMaterialVisual(
   element: HTMLElement,
   item: ItemDefinition | null,
 ): void {
-  if (item?.kind !== "generated_material" || !item.material) {
+  const visuals = inventoryVisualsForItem(item);
+
+  if (!visuals) {
     return;
   }
-
-  const visuals = materialVisualsForMaterial(item.material);
 
   element.classList.add("generated-material-visual");
   element.style?.setProperty("--item-base-color", visuals.baseColor);
   element.style?.setProperty("--item-accent-color", visuals.accentColor);
+  element.style?.setProperty(
+    "--item-emissive-strength",
+    String(visuals.emissiveStrength),
+  );
+  element.style?.setProperty("--item-metallic", String(visuals.metallic));
 }
 
 function createItemSwatch(): HTMLElement {
@@ -107,6 +128,9 @@ export class Inventory {
   readonly #materialItemResolver: MaterialItemResolver | null;
   readonly #onOpenChange: (isOpen: boolean) => void;
   readonly #openMaterialCombiner: () => void;
+  readonly #materialStorage: MaterialStorage | null;
+  readonly #onMaterialStorageChanged: () => void;
+  readonly #openMaterialStorage: () => void;
 
   #slots: Array<ItemStack | null>;
   #selectedIndex = 0;
@@ -119,6 +143,9 @@ export class Inventory {
     onOpenChange: (isOpen: boolean) => void = () => {},
     materialItemResolver: MaterialItemResolver | null = null,
     openMaterialCombiner: () => void = () => {},
+    materialStorage: MaterialStorage | null = null,
+    onMaterialStorageChanged: () => void = () => {},
+    openMaterialStorage: () => void = () => {},
   ) {
     const hotbar = document.querySelector<HTMLElement>("#hotbar");
     const panel = document.querySelector<HTMLElement>("#inventory-panel");
@@ -139,6 +166,9 @@ export class Inventory {
     this.#materialItemResolver = materialItemResolver;
     this.#onOpenChange = onOpenChange;
     this.#openMaterialCombiner = openMaterialCombiner;
+    this.#materialStorage = materialStorage;
+    this.#onMaterialStorageChanged = onMaterialStorageChanged;
+    this.#openMaterialStorage = openMaterialStorage;
     this.#slots = this.#isCreative
       ? createCreativeSlots()
       : createSurvivalSlots();
@@ -213,6 +243,19 @@ export class Inventory {
       this.selectedItemId(),
       this.#materialItemResolver,
     );
+  }
+
+  selectedProceduralMaterial(): MaterialDefinition | null {
+    const item = this.selectedItem();
+
+    if (item?.kind === "generated_material") {
+      return item.material;
+    }
+    if (item?.kind === "tool" && "materialId" in item) {
+      return item.material;
+    }
+
+    return null;
   }
 
   slot(index: number): ItemStack | null {
@@ -381,6 +424,32 @@ export class Inventory {
     return true;
   }
 
+  storeGeneratedMaterialItem(itemId: ItemId, amount = 1): boolean {
+    if (!this.#materialStorage) {
+      return false;
+    }
+
+    const materialId = materialIdFromItemId(itemId);
+    const quantity = Math.max(1, Math.floor(amount));
+
+    if (!materialId || this.countItem(itemId) < quantity) {
+      return false;
+    }
+
+    if (!this.removeItem(itemId, quantity)) {
+      return false;
+    }
+
+    if (!this.#materialStorage.addMaterial(materialId, quantity)) {
+      this.addItem(itemId, quantity);
+      return false;
+    }
+
+    this.#onMaterialStorageChanged();
+    this.render();
+    return true;
+  }
+
   select(index: number): void {
     this.#selectedIndex =
       ((index % this.#slots.length) + this.#slots.length) % this.#slots.length;
@@ -457,6 +526,7 @@ export class Inventory {
       ...this.#inventoryItemsForDisplay().map((item) => {
         const row = document.createElement("div");
         const label = document.createElement("span");
+        const storeButton = this.#createStoreMaterialButton(item);
 
         row.className = `inventory-item-row ${safeItemClass(item.id)}`;
         row.classList.add(`inventory-kind-${item.kind}`);
@@ -469,12 +539,14 @@ export class Inventory {
         row.append(
           label,
           this.#textElement("strong", "", this.#itemCountLabel(item)),
+          ...(storeButton ? [storeButton] : []),
         );
         return row;
       }),
     );
     this.#recipeList.replaceChildren(
       this.#createMaterialCombinerRow(),
+      this.#createMaterialStorageRow(),
       ...this.#crafting
         .recipesForStation("inventory")
         .map((recipe) => this.#createRecipeRow(recipe)),
@@ -520,6 +592,22 @@ export class Inventory {
 
   #itemDefinitionFor(itemId: string): ItemDefinition | null {
     return itemDefinitionFor(itemId, this.#materialItemResolver);
+  }
+
+  #createStoreMaterialButton(item: ItemDefinition): HTMLButtonElement | null {
+    if (item.kind !== "generated_material" || !this.#materialStorage) {
+      return null;
+    }
+
+    const button = document.createElement("button");
+
+    button.type = "button";
+    button.textContent = "Store";
+    button.disabled = !this.#isCreative && this.countItem(item.id) <= 0;
+    button.addEventListener("click", () => {
+      this.storeGeneratedMaterialItem(item.id, 1);
+    });
+    return button;
   }
 
   #textElement<TagName extends keyof HTMLElementTagNameMap>(
@@ -684,6 +772,25 @@ export class Inventory {
     return row;
   }
 
+  #createMaterialStorageRow(): HTMLElement {
+    const row = document.createElement("article");
+    const details = document.createElement("div");
+    const title = document.createElement("strong");
+    const summary = document.createElement("p");
+    const button = document.createElement("button");
+
+    row.className = "recipe material-storage-entry can-craft";
+    title.textContent = "Material Storage";
+    summary.textContent = "Generated material reserves";
+    button.type = "button";
+    button.textContent = "Open Storage";
+    button.disabled = !this.#materialStorage;
+    button.addEventListener("click", () => this.#openMaterialStorage());
+    details.append(title, summary);
+    row.append(details, button);
+    return row;
+  }
+
   #recipeSummary(recipe: Recipe): string {
     const inputs =
       recipe.type === "shapeless"
@@ -716,7 +823,7 @@ export class Inventory {
 
   #modifiedToolRecipes(): readonly Recipe[] {
     const baseToolIds = new Set<ModifiableBaseToolItemId>();
-    const materialIds = new Set<string>();
+    const materials = new Map<string, MaterialDefinition>();
 
     for (const stack of this.#slots) {
       if (!stack) {
@@ -736,34 +843,12 @@ export class Inventory {
         : null;
 
       if (material) {
-        materialIds.add(material.id);
+        materials.set(material.id, material);
       }
     }
 
-    return [...baseToolIds].flatMap((baseToolId) => {
-      const baseTool = this.#itemDefinitionFor(baseToolId);
-
-      if (!baseTool || baseTool.kind !== "tool") {
-        return [];
-      }
-
-      return [...materialIds].map((materialId): Recipe => {
-        const materialItemId = itemIdForMaterial(materialId);
-        const outputItemId = modifiedToolItemId(baseToolId, materialId);
-        const output = this.#itemDefinitionFor(outputItemId);
-
-        return {
-          id: modifiedToolRecipeId(baseToolId, materialId),
-          displayName: output?.displayName ?? `Enhanced ${baseTool.shortName}`,
-          station: "assembler",
-          type: "shapeless",
-          inputs: [
-            { itemId: baseToolId, count: 1 },
-            { itemId: materialItemId, count: 1 },
-          ],
-          outputs: [{ itemId: outputItemId, count: 1 }],
-        };
-      });
+    return generatedMaterialRecipesForMaterials(materials.values(), {
+      baseToolIds: [...baseToolIds],
     });
   }
 }

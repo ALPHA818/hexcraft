@@ -9,7 +9,7 @@ import {
 } from "../materials/MaterialConfig.ts";
 import { MaterialRegistry } from "../materials/MaterialRegistry.ts";
 import {
-  MATERIAL_RESEARCH_TIERS,
+  normalizeMaterialResearchTier,
   normalizeMaterialResearchState,
 } from "../materials/MaterialResearch.ts";
 import { isMaterialProcessingStationType } from "../materials/MaterialStations.ts";
@@ -60,6 +60,15 @@ export type SerializedInventory = Readonly<{
   selectedIndex: number;
   slots?: readonly (SerializedItemStack | null)[];
   items?: readonly LegacySerializedInventoryItem[];
+}>;
+
+export type SerializedMaterialStorageItem = Readonly<{
+  materialId: string;
+  quantity: number;
+}>;
+
+export type SerializedMaterialStorage = Readonly<{
+  materials: readonly SerializedMaterialStorageItem[];
 }>;
 
 export type SerializedPlayerState = Readonly<{
@@ -127,6 +136,7 @@ export type WorldRuntimeStateSave = Readonly<{
   inventory: SerializedInventory;
   gameTime: SerializedGameTimeState;
   materialCodex: SerializedMaterialCodex;
+  materialStorage: SerializedMaterialStorage;
 }>;
 
 export type LoadedWorldSave = Readonly<{
@@ -180,6 +190,12 @@ export function emptyInventorySave(): SerializedInventory {
   };
 }
 
+export function emptyMaterialStorageSave(): SerializedMaterialStorage {
+  return {
+    materials: [],
+  };
+}
+
 function uniqueSortedStrings(values: Iterable<unknown>): readonly string[] {
   const strings = new Set<string>();
 
@@ -219,15 +235,6 @@ function finiteNumberOrDefault(value: unknown, defaultValue: number): number {
   return typeof value === "number" && Number.isFinite(value)
     ? value
     : defaultValue;
-}
-
-function normalizeMaterialResearchTier(
-  value: unknown,
-): MaterialResearchTier | undefined {
-  return typeof value === "string" &&
-    MATERIAL_RESEARCH_TIERS.includes(value as MaterialResearchTier)
-    ? (value as MaterialResearchTier)
-    : undefined;
 }
 
 function normalizeMaterialResearchTiers(
@@ -595,6 +602,45 @@ export function emptyRuntimeStateSave(
     inventory: emptyInventorySave(),
     gameTime: defaultSerializedGameTimeState(),
     materialCodex,
+    materialStorage: emptyMaterialStorageSave(),
+  };
+}
+
+export function normalizeSerializedMaterialStorage(
+  value: unknown,
+): SerializedMaterialStorage {
+  if (!value || typeof value !== "object") {
+    return emptyMaterialStorageSave();
+  }
+
+  const record = value as Record<string, unknown>;
+  const source = Array.isArray(record.materials) ? record.materials : [];
+  const counts = new Map<string, number>();
+
+  for (const item of source) {
+    if (!item || typeof item !== "object") {
+      continue;
+    }
+
+    const entry = item as Record<string, unknown>;
+    const materialId =
+      typeof entry.materialId === "string" ? entry.materialId.trim() : "";
+    const quantity =
+      typeof entry.quantity === "number" && Number.isFinite(entry.quantity)
+        ? Math.max(0, Math.floor(entry.quantity))
+        : 0;
+
+    if (materialId === "" || quantity <= 0) {
+      continue;
+    }
+
+    counts.set(materialId, (counts.get(materialId) ?? 0) + quantity);
+  }
+
+  return {
+    materials: [...counts.entries()]
+      .map(([materialId, quantity]) => ({ materialId, quantity }))
+      .sort((a, b) => a.materialId.localeCompare(b.materialId)),
   };
 }
 
@@ -639,6 +685,10 @@ export function runtimeStateWithDefaults(
       materialCodex,
       (state as { materialResearch?: unknown } | null | undefined)
         ?.materialResearch,
+    ),
+    materialStorage: normalizeSerializedMaterialStorage(
+      (state as { materialStorage?: unknown } | null | undefined)
+        ?.materialStorage,
     ),
   };
 }

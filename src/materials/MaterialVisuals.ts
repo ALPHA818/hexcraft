@@ -17,6 +17,15 @@ export type MaterialVisuals = Readonly<{
   alpha: number;
 }>;
 
+export const UNKNOWN_MATERIAL_VISUALS: MaterialVisuals = {
+  baseColor: "#6f7f86",
+  accentColor: "#d7e6ed",
+  roughness: 0.82,
+  metallic: 0,
+  emissiveStrength: 0,
+  alpha: 1,
+};
+
 type VisualFamily =
   | "toxic"
   | "fire"

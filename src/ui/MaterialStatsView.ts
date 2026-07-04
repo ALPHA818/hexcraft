@@ -3,7 +3,10 @@ import {
   type MaterialDefinition,
   type MaterialStatKey,
 } from "../materials/MaterialTypes.ts";
-import { materialVisualsForMaterial } from "../materials/MaterialVisuals.ts";
+import {
+  materialVisualsForMaterial,
+  type MaterialVisuals,
+} from "../materials/MaterialVisuals.ts";
 import {
   classifyMaterialCapabilities,
   MATERIAL_CAPABILITY_KEYS,
@@ -45,6 +48,10 @@ const STAT_LABELS = {
 
 function formatStat(value: number): string {
   return Number.isInteger(value) ? String(value) : value.toFixed(1);
+}
+
+function formatVisualScalar(value: number): string {
+  return value.toFixed(2);
 }
 
 export function materialStatRows(
@@ -103,6 +110,18 @@ export function materialBalanceRows(
       MATERIAL_BALANCE_SCORE_LABELS.usefulnessScore,
       `${scores.usefulnessScore}/100`,
     ],
+  ] satisfies readonly StatRow[];
+}
+
+export function materialVisualRows(
+  visuals: MaterialVisuals,
+): readonly StatRow[] {
+  return [
+    ["Base color", visuals.baseColor],
+    ["Accent color", visuals.accentColor],
+    ["Emissive strength", formatVisualScalar(visuals.emissiveStrength)],
+    ["Metallic", formatVisualScalar(visuals.metallic)],
+    ["Roughness", formatVisualScalar(visuals.roughness)],
   ] satisfies readonly StatRow[];
 }
 
@@ -166,14 +185,17 @@ export class MaterialStatsView {
     const visuals = materialVisualsForMaterial(material);
     const section = document.createElement("section");
     const swatch = document.createElement("span");
-    const label = document.createElement("p");
+    const details = document.createElement("dl");
 
     section.className = "material-visual-summary";
     swatch.className = "material-visual-swatch";
     swatch.style.setProperty("--material-base-color", visuals.baseColor);
     swatch.style.setProperty("--material-accent-color", visuals.accentColor);
-    label.textContent = `Base ${visuals.baseColor} · Accent ${visuals.accentColor}`;
-    section.append(swatch, label);
+    details.className = "material-visual-grid";
+    for (const [label, value] of materialVisualRows(visuals)) {
+      appendDefinitionRow(details, label, value);
+    }
+    section.append(swatch, details);
     return section;
   }
 

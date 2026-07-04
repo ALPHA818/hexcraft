@@ -5,6 +5,7 @@ import {
   hexColorToRgb,
   materialVisualsForMaterial,
   relativeLuminance,
+  UNKNOWN_MATERIAL_VISUALS,
 } from "./MaterialVisuals.ts";
 
 function testMaterial(
@@ -47,6 +48,14 @@ describe("material visuals", () => {
     expect(materialVisualsForMaterial(material)).toEqual(
       materialVisualsForMaterial(material),
     );
+  });
+
+  it("provides a fallback visual for unknown material items", () => {
+    expect(UNKNOWN_MATERIAL_VISUALS).toMatchObject({
+      baseColor: expect.stringMatching(/^#[0-9a-f]{6}$/i),
+      accentColor: expect.stringMatching(/^#[0-9a-f]{6}$/i),
+      alpha: 1,
+    });
   });
 
   it("varies colors for different generated material ids", () => {
@@ -123,5 +132,42 @@ describe("material visuals", () => {
 
     expect(red).toBeGreaterThan(green);
     expect(green).toBeGreaterThan(blue);
+  });
+
+  it("keeps metal, crystal, fire, and toxic examples visually distinct", () => {
+    const examples = [
+      materialVisualsForMaterial(
+        testMaterial("generated:distinct-metal", {
+          conductivity: 86,
+          metal: 94,
+          tags: ["metal", "metallic"],
+        }),
+      ),
+      materialVisualsForMaterial(
+        testMaterial("generated:distinct-crystal", {
+          crystal: 92,
+          tags: ["crystal", "crystalline"],
+        }),
+      ),
+      materialVisualsForMaterial(
+        testMaterial("generated:distinct-fire", {
+          heat: 92,
+          tags: ["fire", "fuel"],
+        }),
+      ),
+      materialVisualsForMaterial(
+        testMaterial("generated:distinct-toxic", {
+          toxicity: 92,
+          tags: ["toxic", "poison"],
+        }),
+      ),
+    ];
+
+    expect(new Set(examples.map((visuals) => visuals.baseColor)).size).toBe(
+      examples.length,
+    );
+    expect(new Set(examples.map((visuals) => visuals.accentColor)).size).toBe(
+      examples.length,
+    );
   });
 });
