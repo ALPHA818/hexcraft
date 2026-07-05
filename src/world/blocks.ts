@@ -1,4 +1,5 @@
 import type { MaterialProcessingStationType } from "../materials/MaterialTypes.ts";
+import type { WorkbenchType } from "../crafting/WorkbenchTypes.ts";
 import {
   DYNAMIC_MATERIAL_BLOCK_DISPLAY_NAME,
   DYNAMIC_MATERIAL_BLOCK_ID,
@@ -31,6 +32,13 @@ export type BlockId =
   | "torch"
   | typeof DYNAMIC_MATERIAL_BLOCK_ID
   | "element_combiner"
+  | "basic_workbench"
+  | "metal_workbench"
+  | "magic_workbench"
+  | "organic_workbench"
+  | "crystal_workbench"
+  | "chemical_workbench"
+  | "assembler_workbench"
   | "forge_station"
   | "crystallizer_station"
   | "distiller_station"
@@ -101,6 +109,13 @@ export const MATERIAL_NUMERIC_IDS = {
   StabilizerStation: 28,
   InfuserStation: 29,
   AssemblerStation: 30,
+  BasicWorkbench: 31,
+  MetalWorkbench: 32,
+  MagicWorkbench: 33,
+  OrganicWorkbench: 34,
+  CrystalWorkbench: 35,
+  ChemicalWorkbench: 36,
+  AssemblerWorkbench: 37,
 } as const;
 
 function sameTexture(name: string): BlockTextures {
@@ -477,6 +492,106 @@ export const BLOCK_DEFINITIONS = [
     textures: sameTexture("element_combiner"),
   },
   {
+    id: "basic_workbench",
+    numericId: MATERIAL_NUMERIC_IDS.BasicWorkbench,
+    displayName: "Basic Workbench",
+    solid: true,
+    opaque: true,
+    fluid: false,
+    breakable: true,
+    placeable: true,
+    hardness: 1.8,
+    preferredTool: "axe",
+    drops: singleDrop(MATERIAL_NUMERIC_IDS.BasicWorkbench),
+    textures: sameTexture("basic_workbench"),
+  },
+  {
+    id: "metal_workbench",
+    numericId: MATERIAL_NUMERIC_IDS.MetalWorkbench,
+    displayName: "Metal Workbench",
+    solid: true,
+    opaque: true,
+    fluid: false,
+    breakable: true,
+    placeable: true,
+    hardness: 2.6,
+    preferredTool: "pickaxe",
+    drops: singleDrop(MATERIAL_NUMERIC_IDS.MetalWorkbench),
+    textures: sameTexture("metal_workbench"),
+  },
+  {
+    id: "magic_workbench",
+    numericId: MATERIAL_NUMERIC_IDS.MagicWorkbench,
+    displayName: "Magic Workbench",
+    solid: true,
+    opaque: true,
+    fluid: false,
+    breakable: true,
+    placeable: true,
+    hardness: 2,
+    preferredTool: "pickaxe",
+    drops: singleDrop(MATERIAL_NUMERIC_IDS.MagicWorkbench),
+    textures: sameTexture("magic_workbench"),
+    lightEmission: 6,
+  },
+  {
+    id: "organic_workbench",
+    numericId: MATERIAL_NUMERIC_IDS.OrganicWorkbench,
+    displayName: "Organic Workbench",
+    solid: true,
+    opaque: true,
+    fluid: false,
+    breakable: true,
+    placeable: true,
+    hardness: 1.2,
+    preferredTool: "axe",
+    drops: singleDrop(MATERIAL_NUMERIC_IDS.OrganicWorkbench),
+    textures: sameTexture("organic_workbench"),
+  },
+  {
+    id: "crystal_workbench",
+    numericId: MATERIAL_NUMERIC_IDS.CrystalWorkbench,
+    displayName: "Crystal Workbench",
+    solid: true,
+    opaque: true,
+    fluid: false,
+    breakable: true,
+    placeable: true,
+    hardness: 2.4,
+    preferredTool: "pickaxe",
+    drops: singleDrop(MATERIAL_NUMERIC_IDS.CrystalWorkbench),
+    textures: sameTexture("crystal_workbench"),
+    lightEmission: 5,
+  },
+  {
+    id: "chemical_workbench",
+    numericId: MATERIAL_NUMERIC_IDS.ChemicalWorkbench,
+    displayName: "Chemical Workbench",
+    solid: true,
+    opaque: true,
+    fluid: false,
+    breakable: true,
+    placeable: true,
+    hardness: 2.1,
+    preferredTool: "pickaxe",
+    drops: singleDrop(MATERIAL_NUMERIC_IDS.ChemicalWorkbench),
+    textures: sameTexture("chemical_workbench"),
+  },
+  {
+    id: "assembler_workbench",
+    numericId: MATERIAL_NUMERIC_IDS.AssemblerWorkbench,
+    displayName: "Assembler Workbench",
+    solid: true,
+    opaque: true,
+    fluid: false,
+    breakable: true,
+    placeable: true,
+    hardness: 2.3,
+    preferredTool: "pickaxe",
+    drops: singleDrop(MATERIAL_NUMERIC_IDS.AssemblerWorkbench),
+    textures: sameTexture("assembler_workbench"),
+  },
+  {
     id: "forge_station",
     numericId: MATERIAL_NUMERIC_IDS.ForgeStation,
     displayName: "Forge Station",
@@ -575,6 +690,29 @@ const MATERIAL_STATION_TYPES_BY_NUMERIC_ID: ReadonlyMap<
   [MATERIAL_NUMERIC_IDS.AssemblerStation, "assembler"],
 ]);
 
+const WORKBENCH_TYPES_BY_NUMERIC_ID: ReadonlyMap<number, WorkbenchType> =
+  new Map([
+    [MATERIAL_NUMERIC_IDS.ElementCombiner, "element_combiner"],
+    [MATERIAL_NUMERIC_IDS.BasicWorkbench, "basic"],
+    [MATERIAL_NUMERIC_IDS.MetalWorkbench, "metal"],
+    [MATERIAL_NUMERIC_IDS.MagicWorkbench, "magic"],
+    [MATERIAL_NUMERIC_IDS.OrganicWorkbench, "organic"],
+    [MATERIAL_NUMERIC_IDS.CrystalWorkbench, "crystal"],
+    [MATERIAL_NUMERIC_IDS.ChemicalWorkbench, "chemical"],
+    [MATERIAL_NUMERIC_IDS.AssemblerWorkbench, "assembler"],
+  ]);
+
+export const WORKBENCH_BLOCK_IDS = [
+  "basic_workbench",
+  "metal_workbench",
+  "magic_workbench",
+  "organic_workbench",
+  "crystal_workbench",
+  "chemical_workbench",
+  "assembler_workbench",
+  "element_combiner",
+] as const satisfies readonly BlockId[];
+
 export const BLOCKS_BY_NUMERIC_ID: ReadonlyMap<number, BlockDefinition> =
   new Map(BLOCK_DEFINITIONS.map((block) => [block.numericId, block]));
 
@@ -594,6 +732,10 @@ export function materialProcessingStationTypeForBlock(
   numericId: number,
 ): MaterialProcessingStationType | null {
   return MATERIAL_STATION_TYPES_BY_NUMERIC_ID.get(numericId) ?? null;
+}
+
+export function workbenchTypeForBlock(numericId: number): WorkbenchType | null {
+  return WORKBENCH_TYPES_BY_NUMERIC_ID.get(numericId) ?? null;
 }
 
 export function isBlockFluid(numericId: number): boolean {

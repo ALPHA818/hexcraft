@@ -28,6 +28,7 @@ import { MaterialStorage } from "./game/MaterialStorage.ts";
 import { PlayerStats } from "./game/PlayerStats.ts";
 import { SurvivalStatsController } from "./game/SurvivalStatsController.ts";
 import { SurvivalController } from "./game/SurvivalController.ts";
+import { WorkbenchController } from "./game/WorkbenchController.ts";
 import {
   canUseMaterialTestingKit,
   MaterialTestingKit,
@@ -44,6 +45,7 @@ import {
 } from "./save/WorldSaveTypes.ts";
 import { DeathScreen } from "./ui/DeathScreen.ts";
 import { DebugOverlay } from "./ui/DebugOverlay.ts";
+import { CreativeCatalogPanel } from "./ui/CreativeCatalogPanel.ts";
 import { MainMenu } from "./ui/MainMenu.ts";
 import { MaterialCombinerPanel } from "./ui/MaterialCombinerPanel.ts";
 import { MaterialCodexPanel } from "./ui/MaterialCodexPanel.ts";
@@ -52,6 +54,10 @@ import { MaterialStoragePanel } from "./ui/MaterialStoragePanel.ts";
 import { SettingsMenu } from "./ui/SettingsMenu.ts";
 import { SurvivalHud } from "./ui/SurvivalHud.ts";
 import { applyUiStateToBodyClass } from "./ui/uiState.ts";
+import {
+  canOpenWorkbenchTestingPanel,
+  WorkbenchPanel,
+} from "./ui/WorkbenchPanel.ts";
 import { WorldCreationMenu } from "./ui/WorldCreationMenu.ts";
 import { GameTime } from "./world/GameTime.ts";
 import {
@@ -71,6 +77,8 @@ const {
   materialCombinerRoot,
   materialResearchRoot,
   materialStorageRoot,
+  creativeCatalogRoot,
+  workbenchRoot,
   deathScreenRoot,
   mobileControlsRoot,
 } = readGameDom();
@@ -93,7 +101,9 @@ function shouldResumeGameInput(): boolean {
     !document.body.classList.contains("material-codex-open") &&
     !document.body.classList.contains("material-combiner-open") &&
     !document.body.classList.contains("material-research-open") &&
-    !document.body.classList.contains("material-storage-open")
+    !document.body.classList.contains("material-storage-open") &&
+    !document.body.classList.contains("creative-catalog-open") &&
+    !document.body.classList.contains("workbench-open")
   );
 }
 
@@ -177,6 +187,42 @@ const materialStoragePanel = new MaterialStoragePanel(
     }
   },
 );
+const creativeCatalogPanel = new CreativeCatalogPanel(
+  creativeCatalogRoot,
+  null,
+  (isOpen) => {
+    const game = activeGame;
+
+    if (!game) {
+      return;
+    }
+
+    if (isOpen) {
+      game.camera.releaseInput();
+      return;
+    }
+
+    if (shouldResumeGameInput()) {
+      game.camera.resumeInput();
+    }
+  },
+);
+const workbenchPanel = new WorkbenchPanel(workbenchRoot, null, (isOpen) => {
+  const game = activeGame;
+
+  if (!game) {
+    return;
+  }
+
+  if (isOpen) {
+    game.camera.releaseInput();
+    return;
+  }
+
+  if (shouldResumeGameInput()) {
+    game.camera.resumeInput();
+  }
+});
 const deathScreen = new DeathScreen(deathScreenRoot);
 
 function giveMaterial(materialId: string, count = 1): MaterialGiveResult {
@@ -278,7 +324,9 @@ function toggleMaterialCodex(): void {
     document.body.classList.contains("inventory-open") ||
     materialCombinerPanel.isOpen() ||
     materialResearchPanel.isOpen() ||
-    materialStoragePanel.isOpen()
+    materialStoragePanel.isOpen() ||
+    creativeCatalogPanel.isOpen() ||
+    workbenchPanel.isOpen()
   ) {
     return;
   }
@@ -301,12 +349,49 @@ function toggleMaterialResearch(): void {
     document.body.classList.contains("inventory-open") ||
     materialCodexPanel.isOpen() ||
     materialCombinerPanel.isOpen() ||
-    materialStoragePanel.isOpen()
+    materialStoragePanel.isOpen() ||
+    creativeCatalogPanel.isOpen() ||
+    workbenchPanel.isOpen()
   ) {
     return;
   }
 
   materialResearchPanel.show();
+}
+
+function toggleBasicWorkbench(): void {
+  const game = activeGame;
+
+  if (
+    !game ||
+    !canOpenWorkbenchTestingPanel(
+      game.settings.gameMode,
+      game.settings.debugOverlay,
+    )
+  ) {
+    return;
+  }
+
+  if (workbenchPanel.isOpen()) {
+    workbenchPanel.hide();
+    return;
+  }
+
+  if (
+    document.body.classList.contains("menu-open") ||
+    materialCodexPanel.isOpen() ||
+    materialCombinerPanel.isOpen() ||
+    materialResearchPanel.isOpen() ||
+    materialStoragePanel.isOpen() ||
+    creativeCatalogPanel.isOpen()
+  ) {
+    return;
+  }
+
+  if (document.body.classList.contains("inventory-open")) {
+    game.inventory.hide();
+  }
+  workbenchPanel.show("basic", false);
 }
 
 async function showMainMenu(messageText = ""): Promise<void> {
@@ -425,6 +510,10 @@ function stopActiveGame(): void {
   materialResearchPanel.setSession(null);
   materialStoragePanel.hide();
   materialStoragePanel.setSession(null);
+  creativeCatalogPanel.hide();
+  creativeCatalogPanel.setSession(null);
+  workbenchPanel.hide();
+  workbenchPanel.setSession(null);
   activeGame.performanceMonitor.reset();
   debugOverlay.clear();
   deathScreen.hide();
@@ -533,7 +622,6 @@ async function startWorld(save: LoadedWorldSave): Promise<void> {
         }
       },
       materialRegistry,
-      () => materialCombinerPanel.show(),
       materialStorage,
       () => {
         materialCodexPanel.refresh();
@@ -553,12 +641,75 @@ async function startWorld(save: LoadedWorldSave): Promise<void> {
         if (materialStoragePanel.isOpen()) {
           materialStoragePanel.hide();
         }
+        if (creativeCatalogPanel.isOpen()) {
+          creativeCatalogPanel.hide();
+        }
+        if (workbenchPanel.isOpen()) {
+          workbenchPanel.hide();
+        }
         if (document.body.classList.contains("inventory-open")) {
-          inventory.toggle();
+          inventory.hide();
         }
         materialStoragePanel.show();
       },
+      () => {
+        if (materialCodexPanel.isOpen()) {
+          materialCodexPanel.hide();
+        }
+        if (materialCombinerPanel.isOpen()) {
+          materialCombinerPanel.hide();
+        }
+        if (materialResearchPanel.isOpen()) {
+          materialResearchPanel.hide();
+        }
+        if (materialStoragePanel.isOpen()) {
+          materialStoragePanel.hide();
+        }
+        if (workbenchPanel.isOpen()) {
+          workbenchPanel.hide();
+        }
+        creativeCatalogPanel.show();
+        if (document.body.classList.contains("inventory-open")) {
+          inventory.hide();
+        }
+      },
     );
+    const workbenchController = new WorkbenchController({
+      inventory,
+      materialWorld,
+      onSaveRequested: () => void saveActiveGame(),
+      openElementCombiner: () => {
+        if (materialCodexPanel.isOpen()) {
+          materialCodexPanel.hide();
+        }
+        if (materialResearchPanel.isOpen()) {
+          materialResearchPanel.hide();
+        }
+        if (materialStoragePanel.isOpen()) {
+          materialStoragePanel.hide();
+        }
+        if (creativeCatalogPanel.isOpen()) {
+          creativeCatalogPanel.hide();
+        }
+        if (document.body.classList.contains("inventory-open")) {
+          inventory.hide();
+        }
+        materialCombinerPanel.show("combiner", true);
+      },
+    });
+    workbenchPanel.setSession({ controller: workbenchController });
+    creativeCatalogPanel.setSession({
+      mode: settings.gameMode,
+      inventory,
+      materialWorld,
+      showDebugIds: () => {
+        const currentSettings =
+          activeGame?.id === sessionId ? activeGame.settings : settings;
+
+        return currentSettings.debugOverlay;
+      },
+      onSaveRequested: () => void saveActiveGame(),
+    });
     materialCombinerPanel.setSession({
       materialWorld,
       inventory,
@@ -679,10 +830,37 @@ async function startWorld(save: LoadedWorldSave): Promise<void> {
         if (materialResearchPanel.isOpen()) {
           materialResearchPanel.hide();
         }
+        if (creativeCatalogPanel.isOpen()) {
+          creativeCatalogPanel.hide();
+        }
+        if (workbenchPanel.isOpen()) {
+          workbenchPanel.hide();
+        }
         if (document.body.classList.contains("inventory-open")) {
-          inventory.toggle();
+          inventory.hide();
         }
         materialCombinerPanel.show(stationType, true);
+      },
+      (workbenchType) => {
+        if (materialCodexPanel.isOpen()) {
+          materialCodexPanel.hide();
+        }
+        if (materialCombinerPanel.isOpen()) {
+          materialCombinerPanel.hide();
+        }
+        if (materialResearchPanel.isOpen()) {
+          materialResearchPanel.hide();
+        }
+        if (materialStoragePanel.isOpen()) {
+          materialStoragePanel.hide();
+        }
+        if (creativeCatalogPanel.isOpen()) {
+          creativeCatalogPanel.hide();
+        }
+        if (document.body.classList.contains("inventory-open")) {
+          inventory.hide();
+        }
+        workbenchPanel.show(workbenchType, true);
       },
       settings.worldSeed,
     );
@@ -720,6 +898,7 @@ async function startWorld(save: LoadedWorldSave): Promise<void> {
       entityManager,
       entityRenderer,
       inventory,
+      workbenchController,
       materialWorld,
       materialTestingKit,
       materialHazardState,
@@ -888,6 +1067,17 @@ document.addEventListener("keydown", (event) => {
     return;
   }
 
+  if (
+    event.code === "KeyB" &&
+    !event.repeat &&
+    activeGame &&
+    !isEditableTarget(event.target)
+  ) {
+    event.preventDefault();
+    toggleBasicWorkbench();
+    return;
+  }
+
   if (event.code !== "Escape" || event.repeat || !activeGame) {
     return;
   }
@@ -909,6 +1099,14 @@ document.addEventListener("keydown", (event) => {
     materialStoragePanel.hide();
     return;
   }
+  if (creativeCatalogPanel.isOpen()) {
+    creativeCatalogPanel.hide();
+    return;
+  }
+  if (workbenchPanel.isOpen()) {
+    workbenchPanel.hide();
+    return;
+  }
   pauseGame();
 });
 
@@ -922,7 +1120,9 @@ document.addEventListener("pointerlockchange", () => {
     !document.body.classList.contains("material-codex-open") &&
     !document.body.classList.contains("material-combiner-open") &&
     !document.body.classList.contains("material-research-open") &&
-    !document.body.classList.contains("material-storage-open")
+    !document.body.classList.contains("material-storage-open") &&
+    !document.body.classList.contains("creative-catalog-open") &&
+    !document.body.classList.contains("workbench-open")
   ) {
     pauseGame();
   }

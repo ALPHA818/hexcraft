@@ -1,7 +1,7 @@
 import type { ItemId } from "../items/ItemRegistry.ts";
+import type { WorkbenchType } from "./WorkbenchTypes.ts";
 
-export type CraftingStation =
-  "inventory" | "crafting_table" | "furnace" | "assembler";
+export type CraftingStation = WorkbenchType;
 
 export type RecipeStack = Readonly<{
   itemId: ItemId;
@@ -12,7 +12,7 @@ export type BaseRecipe = Readonly<{
   id: string;
   displayName: string;
   outputs: readonly RecipeStack[];
-  station: CraftingStation;
+  workbenchType: WorkbenchType;
 }>;
 
 export type ShapelessRecipe = BaseRecipe &

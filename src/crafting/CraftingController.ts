@@ -1,9 +1,10 @@
 import type { ItemId } from "../items/ItemRegistry.ts";
 import {
   recipeById,
-  recipesForStation as registryRecipesForStation,
+  recipesForWorkbench as registryRecipesForWorkbench,
 } from "./RecipeRegistry.ts";
-import type { CraftingStation, Recipe, RecipeStack } from "./RecipeTypes.ts";
+import type { Recipe, RecipeStack } from "./RecipeTypes.ts";
+import type { WorkbenchType } from "./WorkbenchTypes.ts";
 
 export type CraftingInventory = Readonly<{
   isCreative: () => boolean;
@@ -36,7 +37,7 @@ export class CraftingController {
 
   constructor(
     inventory: CraftingInventory,
-    recipes: readonly Recipe[] = registryRecipesForStation("inventory"),
+    recipes: readonly Recipe[] = registryRecipesForWorkbench("basic"),
     dynamicRecipes: DynamicRecipeProvider = () => [],
   ) {
     this.#inventory = inventory;
@@ -44,8 +45,10 @@ export class CraftingController {
     this.#dynamicRecipes = dynamicRecipes;
   }
 
-  recipesForStation(station: CraftingStation): readonly Recipe[] {
-    return this.#allRecipes().filter((recipe) => recipe.station === station);
+  recipesForWorkbench(workbenchType: WorkbenchType): readonly Recipe[] {
+    return this.#allRecipes().filter(
+      (recipe) => recipe.workbenchType === workbenchType,
+    );
   }
 
   recipeById(recipeId: string): Recipe | null {
@@ -84,10 +87,9 @@ export class CraftingController {
       }
     }
 
-    const addOutput =
-      this.#inventory.isCreative() && recipe.station === "assembler"
-        ? (this.#inventory.grantItem ?? this.#inventory.addItem)
-        : this.#inventory.addItem;
+    const addOutput = this.#inventory.isCreative()
+      ? (this.#inventory.grantItem ?? this.#inventory.addItem)
+      : this.#inventory.addItem;
 
     for (const output of recipe.outputs) {
       if (!addOutput(output.itemId, output.count)) {

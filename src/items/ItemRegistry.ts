@@ -274,26 +274,7 @@ export const ITEMS_BY_ID: ReadonlyMap<string, ItemDefinition> = new Map(
   ITEM_DEFINITIONS.map((item) => [item.id, item]),
 );
 
-export const DEFAULT_CREATIVE_HOTBAR_ITEM_IDS = [
-  "block:dirt",
-  "block:stone",
-  "block:wood",
-  "block:planks",
-  "block:sand",
-  "block:torch",
-  "tool:pickaxe",
-  "tool:shovel",
-  "tool:axe",
-] as const satisfies readonly ItemId[];
-
-export const DEFAULT_SURVIVAL_HOTBAR_ITEM_IDS = [
-  "block:dirt",
-  "tool:pickaxe",
-  "tool:shovel",
-  "tool:axe",
-] as const satisfies readonly ItemId[];
-
-export const HOTBAR_SLOT_COUNT = DEFAULT_CREATIVE_HOTBAR_ITEM_IDS.length;
+export const HOTBAR_SLOT_COUNT = 9;
 
 export function isStabilizedPlaceableMaterial(
   material: Pick<MaterialDefinition, "generation" | "stability">,

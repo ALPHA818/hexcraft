@@ -28,6 +28,7 @@ import {
 import {
   validateBlockPlacement,
   validateMaterialStationInteraction,
+  validateWorkbenchInteraction,
   type BlockPlacementFailure,
   type BlockPlacementFailureReason,
 } from "./BlockPlacementRules.ts";
@@ -36,6 +37,33 @@ import { applyMaterialDropRules } from "./MaterialDropRules.ts";
 import type { MaterialWorldController } from "./MaterialWorldController.ts";
 import type { GameMode } from "./gameMode.ts";
 import type { MaterialProcessingStationType } from "../materials/MaterialTypes.ts";
+import type { WorkbenchType } from "../crafting/WorkbenchTypes.ts";
+
+export type WorkbenchInteractionOpenTarget =
+  | Readonly<{
+      kind: "material_combiner";
+      stationType: "combiner";
+    }>
+  | Readonly<{
+      kind: "workbench";
+      workbenchType: Exclude<WorkbenchType, "element_combiner">;
+    }>;
+
+export function workbenchInteractionOpenTarget(
+  workbenchType: WorkbenchType,
+): WorkbenchInteractionOpenTarget {
+  if (workbenchType === "element_combiner") {
+    return {
+      kind: "material_combiner",
+      stationType: "combiner",
+    };
+  }
+
+  return {
+    kind: "workbench",
+    workbenchType,
+  };
+}
 
 export class SurvivalController {
   readonly #canvas: HTMLCanvasElement;
@@ -51,6 +79,9 @@ export class SurvivalController {
   readonly #onMaterialDiscovery: () => void;
   readonly #openMaterialStation: (
     stationType: MaterialProcessingStationType,
+  ) => void;
+  readonly #openWorkbench: (
+    workbenchType: Exclude<WorkbenchType, "element_combiner">,
   ) => void;
   readonly #worldSeed: number;
   readonly #materialDiscoveryConfig: Partial<
@@ -80,6 +111,9 @@ export class SurvivalController {
     openMaterialStation: (
       stationType: MaterialProcessingStationType,
     ) => void = () => {},
+    openWorkbench: (
+      workbenchType: Exclude<WorkbenchType, "element_combiner">,
+    ) => void = () => {},
     worldSeed: number = DEFAULT_WORLD_SEED,
     materialDiscoveryConfig: Partial<
       Pick<MaterialConfig, "materialTraceDiscoveryChance" | "seed">
@@ -101,6 +135,7 @@ export class SurvivalController {
     this.#materialWorld = materialWorld;
     this.#onMaterialDiscovery = onMaterialDiscovery;
     this.#openMaterialStation = openMaterialStation;
+    this.#openWorkbench = openWorkbench;
     this.#worldSeed = worldSeed;
     this.#materialDiscoveryConfig = materialDiscoveryConfig;
     this.#isCreative = mode === "creative";
@@ -302,7 +337,10 @@ export class SurvivalController {
       return;
     }
 
-    if (this.#interactWithTargetStation()) {
+    if (
+      this.#interactWithTargetWorkbench() ||
+      this.#interactWithTargetStation()
+    ) {
       return;
     }
 
@@ -388,6 +426,26 @@ export class SurvivalController {
 
     this.stopMining();
     this.#openMaterialStation(interaction.stationType);
+    return true;
+  }
+
+  #interactWithTargetWorkbench(): boolean {
+    const interaction = validateWorkbenchInteraction({
+      target: this.#target,
+    });
+
+    if (!interaction.ok) {
+      return false;
+    }
+
+    this.stopMining();
+    const target = workbenchInteractionOpenTarget(interaction.workbenchType);
+
+    if (target.kind === "material_combiner") {
+      this.#openMaterialStation(target.stationType);
+    } else {
+      this.#openWorkbench(target.workbenchType);
+    }
     return true;
   }
 

@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import { TerrainMaterial } from "../geometry/terrainChunk.ts";
+import { BLOCK_DEFINITIONS, WORKBENCH_BLOCK_IDS } from "../world/blocks.ts";
 import { combineMaterials } from "../materials/MaterialCombiner.ts";
 import { MaterialRegistry } from "../materials/MaterialRegistry.ts";
 import {
@@ -92,6 +93,39 @@ describe("item stacks", () => {
       displayName: "Forge Station",
       placeable: true,
       material: TerrainMaterial.ForgeStation,
+    });
+  });
+
+  it("resolves workbench block items as placeable", () => {
+    const blocksById = new Map(
+      BLOCK_DEFINITIONS.map((block) => [block.id, block]),
+    );
+
+    for (const blockId of WORKBENCH_BLOCK_IDS) {
+      const block = blocksById.get(blockId);
+
+      expect(block).toBeDefined();
+      expect(itemDefinitionFor(`block:${blockId}`)).toMatchObject({
+        kind: "block",
+        placeable: true,
+        material: block?.numericId,
+      });
+      expect(placeableMaterialForItem(`block:${blockId}`)).toBe(
+        block?.numericId,
+      );
+    }
+
+    expect(blockItemIdForMaterial(TerrainMaterial.BasicWorkbench)).toBe(
+      "block:basic_workbench",
+    );
+    expect(placeableMaterialForItem("block:basic_workbench")).toBe(
+      TerrainMaterial.BasicWorkbench,
+    );
+    expect(itemDefinitionFor("block:assembler_workbench")).toMatchObject({
+      kind: "block",
+      displayName: "Assembler Workbench",
+      placeable: true,
+      material: TerrainMaterial.AssemblerWorkbench,
     });
   });
 

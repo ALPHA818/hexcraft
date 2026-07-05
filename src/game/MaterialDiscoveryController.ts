@@ -13,6 +13,7 @@ export type MaterialDiscoveryInventory = Readonly<{
   isCreative: () => boolean;
   countItem: (itemId: ItemId) => number;
   addItem: (itemId: ItemId, amount?: number) => boolean;
+  grantItem?: (itemId: ItemId, amount?: number) => boolean;
   removeItem: (itemId: ItemId, amount?: number) => boolean;
 }>;
 
@@ -238,7 +239,12 @@ export class MaterialDiscoveryController {
       this.#materialWorld.discoverMaterial(result.material.id);
     const itemId = materialItemId(result.material.id);
 
-    if (!this.#inventory.addItem(itemId, 1)) {
+    const addedResultItem =
+      creative && this.#inventory.grantItem
+        ? this.#inventory.grantItem(itemId, 1)
+        : this.#inventory.addItem(itemId, 1);
+
+    if (!addedResultItem) {
       return {
         ok: false,
         reason: "inventory_full",

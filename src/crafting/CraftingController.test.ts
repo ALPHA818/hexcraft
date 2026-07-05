@@ -5,7 +5,7 @@ import {
   CraftingController,
   type CraftingInventory,
 } from "./CraftingController.ts";
-import { recipeById, recipesForStation } from "./RecipeRegistry.ts";
+import { recipeById, recipesForWorkbench } from "./RecipeRegistry.ts";
 
 function createInventory(
   entries: readonly (readonly [ItemId, number])[],
@@ -41,22 +41,23 @@ function createInventory(
 }
 
 describe("crafting controller", () => {
-  it("lists inventory recipes", () => {
-    expect(recipesForStation("inventory").map((recipe) => recipe.id)).toEqual([
+  it("lists basic workbench recipes", () => {
+    expect(recipesForWorkbench("basic").map((recipe) => recipe.id)).toEqual([
       "wood_to_planks",
       "planks_to_sticks",
       "wooden_pickaxe",
       "wooden_axe",
       "wooden_shovel",
+      "basic_workbench",
+      "metal_workbench_iron",
+      "metal_workbench_copper",
+      "magic_workbench",
+      "organic_workbench",
+      "crystal_workbench",
+      "chemical_workbench",
+      "assembler_workbench_iron",
+      "assembler_workbench_copper",
       "element_combiner_station",
-      "forge_station_iron",
-      "forge_station_copper",
-      "crystallizer_station",
-      "distiller_station",
-      "stabilizer_station",
-      "infuser_station",
-      "assembler_station_iron",
-      "assembler_station_copper",
     ]);
   });
 

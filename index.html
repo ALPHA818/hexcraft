@@ -43,9 +43,11 @@
       hidden
     ></aside>
     <aside id="material-storage" class="material-storage-panel" hidden></aside>
+    <aside id="creative-catalog" class="creative-catalog-panel" hidden></aside>
+    <aside id="workbench" class="workbench-panel" hidden></aside>
     <section id="death-screen" class="death-screen" hidden></section>
     <div id="crosshair" aria-hidden="true"></div>
-    <nav id="hotbar" aria-label="Block hotbar"></nav>
+    <nav id="hotbar" aria-label="Item hotbar"></nav>
     <div id="mobile-controls" hidden>
       <div id="look-zone" aria-label="Drag to look"></div>
       <div id="move-stick" aria-label="Movement joystick">
@@ -69,13 +71,15 @@
         <span>E to close</span>
       </header>
       <div id="inventory-counts"></div>
-      <div id="inventory-recipes"></div>
+      <div id="inventory-actions"></div>
+      <div id="inventory-cursor-stack" hidden></div>
     </section>
     <aside id="controls">
       <strong>Click to play</strong>
       <p>
         Creative flight · WASD move · Space up · Shift down · Left mine · Right
-        place · E blocks · M codex · R research · T weather · N time · P pause
+        place · E inventory · B workbench · M codex · R research · T weather · N
+        time · P pause
       </p>
     </aside>
     <script type="module" src="/src/main.ts"></script>

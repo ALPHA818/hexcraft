@@ -2,10 +2,10 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { TerrainMaterial } from "../geometry/terrainChunk.ts";
 import {
+  ITEM_DEFINITIONS,
   itemDefinitionFor,
   itemIdForMaterial,
   modifiedToolItemId,
-  modifiedToolRecipeId,
 } from "../items/ItemRegistry.ts";
 import { createItemStack } from "../items/ItemStack.ts";
 import { combineMaterials } from "../materials/MaterialCombiner.ts";
@@ -37,28 +37,48 @@ function stubInventoryDocument(): {
   hotbar: HTMLElement;
   panel: HTMLElement;
   inventoryCounts: HTMLElement;
-  recipeList: HTMLElement;
+  inventoryActions: HTMLElement;
+  heldStackPreview: HTMLElement;
+  createdElements: HTMLElement[];
 } {
+  const createdElements: HTMLElement[] = [];
   const elements = {
     hotbar: createElementStub(),
     panel: createElementStub(),
     inventoryCounts: createElementStub(),
-    recipeList: createElementStub(),
+    inventoryActions: createElementStub(),
+    heldStackPreview: createElementStub(),
   };
   const elementMap = new Map<string, HTMLElement>([
     ["#hotbar", elements.hotbar],
     ["#inventory-panel", elements.panel],
     ["#inventory-counts", elements.inventoryCounts],
-    ["#inventory-recipes", elements.recipeList],
+    ["#inventory-actions", elements.inventoryActions],
+    ["#inventory-cursor-stack", elements.heldStackPreview],
   ]);
 
   vi.stubGlobal("document", {
     addEventListener: vi.fn(),
-    createElement: vi.fn(() => createElementStub()),
+    removeEventListener: vi.fn(),
+    body: {
+      classList: {
+        add: vi.fn(),
+        remove: vi.fn(),
+        toggle: vi.fn(),
+      },
+    },
+    createElement: vi.fn(() => {
+      const element = createElementStub();
+
+      createdElements.push(element);
+      return element;
+    }),
+    exitPointerLock: vi.fn(),
+    pointerLockElement: null,
     querySelector: vi.fn((selector: string) => elementMap.get(selector)),
   });
 
-  return elements;
+  return { ...elements, createdElements };
 }
 
 function materialRegistry(): MaterialRegistry {
@@ -93,6 +113,60 @@ function generatedMaterial(id: string, stability: number): MaterialDefinition {
   };
 }
 
+function allSavedStacks(state: ReturnType<Inventory["exportState"]>) {
+  return [...(state.hotbar ?? []), ...(state.backpack ?? [])];
+}
+
+function stackCountsFor(
+  state: ReturnType<Inventory["exportState"]>,
+  itemId: string,
+): readonly number[] {
+  return allSavedStacks(state)
+    .filter((slot) => slot?.itemId === itemId)
+    .map((slot) => slot?.count ?? 0);
+}
+
+function lastReplaceChildrenArgs(element: HTMLElement): readonly HTMLElement[] {
+  return (vi.mocked(element.replaceChildren).mock.calls.at(-1) ??
+    []) as unknown as readonly HTMLElement[];
+}
+
+function actionLabels(element: HTMLElement): readonly string[] {
+  return lastReplaceChildrenArgs(element).map(
+    (child) => child.textContent ?? "",
+  );
+}
+
+function inventoryContainerGrid(
+  elements: readonly HTMLElement[],
+  label: string,
+): HTMLElement | null {
+  const container = elements.find((element) =>
+    element.className.includes(`inventory-container-${label.toLowerCase()}`),
+  );
+  const appendArgs = container
+    ? (vi.mocked(container.append).mock.calls.at(-1) ?? [])
+    : [];
+
+  return (appendArgs[1] as HTMLElement | undefined) ?? null;
+}
+
+function dispatchInventoryKey(event: Partial<KeyboardEvent>): void {
+  const handler = vi
+    .mocked(document.addEventListener)
+    .mock.calls.find(([type]) => type === "keydown")?.[1] as
+    ((event: KeyboardEvent) => void) | undefined;
+
+  expect(handler).toBeTypeOf("function");
+  handler?.({
+    key: "",
+    repeat: false,
+    preventDefault: vi.fn(),
+    stopPropagation: vi.fn(),
+    ...event,
+  } as KeyboardEvent);
+}
+
 afterEach(() => {
   vi.unstubAllGlobals();
 });
@@ -109,41 +183,182 @@ describe("survival inventory drops", () => {
     expect(minedDrop(TerrainMaterial.Leaves)).toBeNull();
   });
 
-  it("shows unlimited hotbar blocks in creative mode", () => {
+  it("new survival inventory has 9 hotbar slots and 27 backpack slots", () => {
+    stubInventoryDocument();
+
+    const inventory = new Inventory("survival");
+    const state = inventory.exportState();
+
+    expect(state.hotbar).toHaveLength(9);
+    expect(state.backpack).toHaveLength(27);
+  });
+
+  it("new creative inventory has the same slot counts", () => {
     const elements = stubInventoryDocument();
 
     const inventory = new Inventory("creative");
+    const state = inventory.exportState();
 
-    expect(inventory.count(TerrainMaterial.Dirt)).toBe(
-      Number.POSITIVE_INFINITY,
-    );
+    expect(state.hotbar).toHaveLength(9);
+    expect(state.backpack).toHaveLength(27);
     expect(elements.hotbar.replaceChildren).toHaveBeenCalled();
   });
 
-  it("renders inventory recipes from recipe data", () => {
+  it("creative inventory does not automatically own every item definition", () => {
+    stubInventoryDocument();
+    const inventory = new Inventory("creative");
+
+    expect(inventory.creativeCatalogItems()).toHaveLength(
+      ITEM_DEFINITIONS.length,
+    );
+    expect(inventory.count(TerrainMaterial.Dirt)).toBe(0);
+    expect(inventory.countItem("tool:pickaxe")).toBe(0);
+  });
+
+  it("survival inventory does not automatically own permanent blocks", () => {
+    stubInventoryDocument();
+    const inventory = new Inventory("survival");
+
+    expect(inventory.count(TerrainMaterial.Dirt)).toBe(0);
+    expect(inventory.count(TerrainMaterial.Stone)).toBe(0);
+    expect(inventory.count(TerrainMaterial.Wood)).toBe(0);
+    expect(inventory.count(TerrainMaterial.Planks)).toBe(0);
+    expect(inventory.count(TerrainMaterial.Sand)).toBe(0);
+  });
+
+  it("inventory renders backpack and hotbar slot grids", () => {
     const elements = stubInventoryDocument();
 
     new Inventory("survival");
 
-    expect(elements.recipeList.replaceChildren).toHaveBeenCalled();
+    const containers = lastReplaceChildrenArgs(elements.inventoryCounts);
+    const hotbarGrid = inventoryContainerGrid(containers, "Hotbar");
+    const backpackGrid = inventoryContainerGrid(containers, "Backpack");
+
+    expect(hotbarGrid).not.toBeNull();
+    expect(backpackGrid).not.toBeNull();
     expect(
-      vi.mocked(elements.recipeList.replaceChildren).mock.calls.at(-1)?.length,
-    ).toBeGreaterThanOrEqual(5);
+      vi.mocked(hotbarGrid?.replaceChildren ?? vi.fn()).mock.calls.at(-1)
+        ?.length,
+    ).toBe(9);
+    expect(
+      vi.mocked(backpackGrid?.replaceChildren ?? vi.fn()).mock.calls.at(-1)
+        ?.length,
+    ).toBe(27);
+  });
+
+  it("recipe list is no longer rendered in inventory", () => {
+    const elements = stubInventoryDocument();
+
+    new Inventory("survival");
+
+    expect(actionLabels(elements.inventoryActions)).not.toContain(
+      "Material Combiner",
+    );
+    expect(actionLabels(elements.inventoryActions)).not.toContain(
+      "Wood Planks",
+    );
+    expect(lastReplaceChildrenArgs(elements.inventoryActions)).not.toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          className: expect.stringContaining("recipe"),
+        }),
+      ]),
+    );
+  });
+
+  it("creative catalog button appears only in creative", () => {
+    const creativeElements = stubInventoryDocument();
+
+    new Inventory("creative");
+
+    expect(actionLabels(creativeElements.inventoryActions)).toContain(
+      "Creative Catalog",
+    );
+
+    vi.unstubAllGlobals();
+
+    const survivalElements = stubInventoryDocument();
+
+    new Inventory("survival");
+
+    expect(actionLabels(survivalElements.inventoryActions)).not.toContain(
+      "Creative Catalog",
+    );
+  });
+
+  it("material storage button appears when storage exists", () => {
+    const elements = stubInventoryDocument();
+
+    new Inventory(
+      "survival",
+      () => {},
+      null,
+      new MaterialStorage(),
+      () => {},
+      () => {},
+    );
+
+    expect(actionLabels(elements.inventoryActions)).toContain(
+      "Material Storage",
+    );
+  });
+
+  it("opening inventory releases pointer lock", () => {
+    const elements = stubInventoryDocument();
+    const inventory = new Inventory("survival");
+
+    Object.defineProperty(document, "pointerLockElement", {
+      configurable: true,
+      value: elements.hotbar,
+    });
+
+    inventory.toggle();
+
+    expect(document.exitPointerLock).toHaveBeenCalledOnce();
+    expect(elements.panel.hidden).toBe(false);
+  });
+
+  it("Escape closes inventory", () => {
+    const elements = stubInventoryDocument();
+    const onOpenChange = vi.fn();
+    const inventory = new Inventory("survival", onOpenChange);
+
+    inventory.toggle();
+    dispatchInventoryKey({ code: "Escape" });
+
+    expect(elements.panel.hidden).toBe(true);
+    expect(onOpenChange).toHaveBeenLastCalledWith(false);
   });
 
   it("tracks selected hotbar items as blocks or tools", () => {
     stubInventoryDocument();
     const inventory = new Inventory("survival");
 
-    expect(inventory.selectedItemId()).toBe("block:dirt");
-    expect(inventory.selectedPlaceableMaterial()).toBe(TerrainMaterial.Dirt);
-    expect(inventory.selectedTool().kind).toBe("hand");
-
-    inventory.select(1);
-
     expect(inventory.selectedItemId()).toBe("tool:pickaxe");
     expect(inventory.selectedPlaceableMaterial()).toBeNull();
     expect(inventory.selectedTool().kind).toBe("pickaxe");
+
+    inventory.setSlot(4, createItemStack("block:dirt", 4));
+    inventory.select(4);
+
+    expect(inventory.selectedItemId()).toBe("block:dirt");
+    expect(inventory.selectedPlaceableMaterial()).toBe(TerrainMaterial.Dirt);
+    expect(inventory.selectedTool().kind).toBe("hand");
+  });
+
+  it("selected item comes from hotbar only", () => {
+    stubInventoryDocument();
+    const inventory = new Inventory("creative");
+
+    inventory.setBackpackSlot(0, createItemStack("block:dirt", 1));
+
+    expect(inventory.selectedItemId()).toBeNull();
+    expect(inventory.selectedPlaceableMaterial()).toBeNull();
+
+    inventory.setSlot(0, createItemStack("tool:pickaxe", 1));
+
+    expect(inventory.selectedItemId()).toBe("tool:pickaxe");
   });
 
   it("decreases tool durability and removes broken tools in survival", () => {
@@ -181,7 +396,7 @@ describe("survival inventory drops", () => {
 
     source.add(TerrainMaterial.Wood, 3);
     source.addItem("material:raw_iron", 2);
-    source.select(1);
+    source.select(0);
     source.damageSelectedTool();
 
     const state = source.exportState();
@@ -195,6 +410,322 @@ describe("survival inventory drops", () => {
     expect(target.selectedTool().kind).toBe("pickaxe");
   });
 
+  it("addItem fills existing stacks first", () => {
+    stubInventoryDocument();
+    const inventory = new Inventory("survival");
+
+    inventory.setSlot(4, createItemStack("material:coal", 60));
+
+    expect(inventory.addItem("material:coal", 10)).toBe(true);
+    expect(inventory.slot(4)).toMatchObject({
+      itemId: "material:coal",
+      count: 64,
+    });
+    expect(
+      [...stackCountsFor(inventory.exportState(), "material:coal")].sort(
+        (a, b) => b - a,
+      ),
+    ).toEqual([64, 6]);
+  });
+
+  it("addItem fills hotbar and backpack empty slots", () => {
+    stubInventoryDocument();
+    const inventory = new Inventory("survival");
+
+    expect(inventory.addItem("tool:shears", 8)).toBe(true);
+
+    expect(
+      inventory.exportState().hotbar?.filter((slot) => slot !== null),
+    ).toHaveLength(9);
+    expect(inventory.backpackSlot(0)?.itemId).toBe("tool:shears");
+    expect(inventory.backpackSlot(1)?.itemId).toBe("tool:shears");
+  });
+
+  it("removeItem removes from hotbar and backpack", () => {
+    stubInventoryDocument();
+    const inventory = new Inventory("survival");
+
+    inventory.addItem("tool:shears", 8);
+
+    expect(inventory.removeItem("tool:shears", 7)).toBe(true);
+    expect(inventory.countItem("tool:shears")).toBe(1);
+    expect(inventory.backpackSlot(1)?.itemId).toBe("tool:shears");
+  });
+
+  it("moves a stack from backpack to hotbar", () => {
+    stubInventoryDocument();
+    const inventory = new Inventory("creative");
+
+    inventory.setBackpackSlot(0, createItemStack("block:dirt", 12));
+
+    expect(inventory.interactWithSlot("backpack", 0)).toBe(true);
+    expect(inventory.heldStack()).toMatchObject({
+      itemId: "block:dirt",
+      count: 12,
+    });
+    expect(inventory.backpackSlot(0)).toBeNull();
+
+    expect(inventory.interactWithSlot("hotbar", 2)).toBe(true);
+    expect(inventory.heldStack()).toBeNull();
+    expect(inventory.slot(2)).toMatchObject({
+      itemId: "block:dirt",
+      count: 12,
+    });
+  });
+
+  it("moves a stack from hotbar to backpack", () => {
+    stubInventoryDocument();
+    const inventory = new Inventory("creative");
+
+    inventory.setSlot(0, createItemStack("block:stone", 7));
+
+    expect(inventory.interactWithSlot("hotbar", 0)).toBe(true);
+    expect(inventory.slot(0)).toBeNull();
+    expect(inventory.interactWithSlot("backpack", 3)).toBe(true);
+
+    expect(inventory.heldStack()).toBeNull();
+    expect(inventory.backpackSlot(3)).toMatchObject({
+      itemId: "block:stone",
+      count: 7,
+    });
+  });
+
+  it("merges compatible stacks", () => {
+    stubInventoryDocument();
+    const inventory = new Inventory("creative");
+
+    inventory.setSlot(0, createItemStack("material:coal", 60));
+    inventory.setBackpackSlot(0, createItemStack("material:coal", 10));
+
+    expect(inventory.interactWithSlot("backpack", 0)).toBe(true);
+    expect(inventory.interactWithSlot("hotbar", 0)).toBe(true);
+
+    expect(inventory.slot(0)).toMatchObject({
+      itemId: "material:coal",
+      count: 64,
+    });
+    expect(inventory.heldStack()).toMatchObject({
+      itemId: "material:coal",
+      count: 6,
+    });
+
+    expect(inventory.interactWithSlot("backpack", 1)).toBe(true);
+    expect(inventory.backpackSlot(1)).toMatchObject({
+      itemId: "material:coal",
+      count: 6,
+    });
+    expect(inventory.heldStack()).toBeNull();
+  });
+
+  it("splits a stack with right click", () => {
+    stubInventoryDocument();
+    const inventory = new Inventory("creative");
+
+    inventory.setBackpackSlot(0, createItemStack("block:planks", 9));
+
+    expect(
+      inventory.interactWithSlot("backpack", 0, {
+        button: 2,
+      }),
+    ).toBe(true);
+
+    expect(inventory.backpackSlot(0)).toMatchObject({
+      itemId: "block:planks",
+      count: 4,
+    });
+    expect(inventory.heldStack()).toMatchObject({
+      itemId: "block:planks",
+      count: 5,
+    });
+  });
+
+  it("shift-click moves a stack between backpack and hotbar", () => {
+    stubInventoryDocument();
+    const inventory = new Inventory("creative");
+
+    inventory.setBackpackSlot(0, createItemStack("block:sand", 8));
+
+    expect(
+      inventory.interactWithSlot("backpack", 0, {
+        shiftKey: true,
+      }),
+    ).toBe(true);
+
+    expect(inventory.backpackSlot(0)).toBeNull();
+    expect(inventory.slot(0)).toMatchObject({
+      itemId: "block:sand",
+      count: 8,
+    });
+
+    expect(
+      inventory.interactWithSlot("hotbar", 0, {
+        shiftKey: true,
+      }),
+    ).toBe(true);
+    expect(inventory.slot(0)).toBeNull();
+    expect(inventory.backpackSlot(0)).toMatchObject({
+      itemId: "block:sand",
+      count: 8,
+    });
+  });
+
+  it("tools do not stack when moved onto another tool", () => {
+    stubInventoryDocument();
+    const inventory = new Inventory("creative");
+
+    inventory.setSlot(0, {
+      itemId: "tool:pickaxe",
+      count: 1,
+      durability: 10,
+    });
+    inventory.setBackpackSlot(0, {
+      itemId: "tool:pickaxe",
+      count: 1,
+      durability: 20,
+    });
+
+    expect(inventory.interactWithSlot("backpack", 0)).toBe(true);
+    expect(inventory.interactWithSlot("hotbar", 0)).toBe(true);
+
+    expect(inventory.slot(0)).toMatchObject({
+      itemId: "tool:pickaxe",
+      count: 1,
+      durability: 20,
+    });
+    expect(inventory.heldStack()).toMatchObject({
+      itemId: "tool:pickaxe",
+      count: 1,
+      durability: 10,
+    });
+  });
+
+  it("generated material stacks merge correctly", () => {
+    stubInventoryDocument();
+    const registry = materialRegistry();
+    const itemId = itemIdForMaterial("element:iron");
+    const inventory = new Inventory("creative", () => {}, registry);
+
+    inventory.setSlot(0, createItemStack(itemId, 60, registry));
+    inventory.setBackpackSlot(0, createItemStack(itemId, 10, registry));
+
+    expect(inventory.interactWithSlot("backpack", 0)).toBe(true);
+    expect(inventory.interactWithSlot("hotbar", 0)).toBe(true);
+
+    expect(inventory.slot(0)).toMatchObject({
+      itemId,
+      count: 64,
+    });
+    expect(inventory.heldStack()).toMatchObject({
+      itemId,
+      count: 6,
+    });
+  });
+
+  it("modified tools remain unique and do not stack", () => {
+    stubInventoryDocument();
+    const registry = materialRegistry();
+    const itemId = modifiedToolItemId("tool:pickaxe", "element:iron");
+    const inventory = new Inventory("creative", () => {}, registry);
+
+    inventory.setSlot(0, {
+      itemId,
+      count: 1,
+      durability: 12,
+    });
+    inventory.setBackpackSlot(0, {
+      itemId,
+      count: 1,
+      durability: 24,
+    });
+
+    expect(inventory.interactWithSlot("backpack", 0)).toBe(true);
+    expect(inventory.interactWithSlot("hotbar", 0)).toBe(true);
+
+    expect(inventory.slot(0)).toMatchObject({
+      itemId,
+      count: 1,
+      durability: 24,
+    });
+    expect(inventory.heldStack()).toMatchObject({
+      itemId,
+      count: 1,
+      durability: 12,
+    });
+  });
+
+  it("renders a cursor-held stack visual", () => {
+    const elements = stubInventoryDocument();
+    const inventory = new Inventory("creative");
+
+    inventory.setBackpackSlot(0, createItemStack("block:dirt", 3));
+    inventory.interactWithSlot("backpack", 0);
+
+    expect(elements.heldStackPreview.hidden).toBe(false);
+    expect(elements.heldStackPreview.replaceChildren).toHaveBeenCalled();
+  });
+
+  it("returns held stacks safely when closing inventory", () => {
+    const elements = stubInventoryDocument();
+    const inventory = new Inventory("creative");
+
+    inventory.setBackpackSlot(0, createItemStack("block:dirt", 11));
+    inventory.toggle();
+    inventory.interactWithSlot("backpack", 0);
+
+    expect(inventory.heldStack()).toMatchObject({
+      itemId: "block:dirt",
+      count: 11,
+    });
+
+    inventory.hide();
+
+    expect(inventory.heldStack()).toBeNull();
+    expect(inventory.backpackSlot(0)).toMatchObject({
+      itemId: "block:dirt",
+      count: 11,
+    });
+    expect(elements.panel.hidden).toBe(true);
+  });
+
+  it("old save with slots migrates into the new hotbar", () => {
+    stubInventoryDocument();
+    const inventory = new Inventory("creative");
+
+    inventory.importState({
+      selectedIndex: 1,
+      slots: [
+        { itemId: "block:dirt", count: 5 },
+        { itemId: "tool:pickaxe", count: 1 },
+      ],
+    });
+
+    expect(inventory.exportState().selectedHotbarIndex).toBe(1);
+    expect(inventory.slot(0)).toMatchObject({
+      itemId: "block:dirt",
+      count: 5,
+    });
+    expect(inventory.selectedItemId()).toBe("tool:pickaxe");
+    expect(inventory.exportState().backpack).toEqual(
+      Array.from({ length: 27 }, () => null),
+    );
+  });
+
+  it("old save with terrain material counts migrates safely", () => {
+    stubInventoryDocument();
+    const inventory = new Inventory("creative");
+
+    inventory.importState({
+      selectedIndex: 0,
+      items: [{ material: TerrainMaterial.Dirt, count: 3 }],
+    });
+
+    expect(inventory.count(TerrainMaterial.Dirt)).toBe(3);
+    expect(inventory.slot(0)).toMatchObject({
+      itemId: "block:dirt",
+      count: 3,
+    });
+  });
+
   it("can add base element material items", () => {
     stubInventoryDocument();
     const registry = materialRegistry();
@@ -204,9 +735,9 @@ describe("survival inventory drops", () => {
     expect(inventory.addItem(ironItemId, 3)).toBe(true);
     expect(inventory.countItem(ironItemId)).toBe(3);
     expect(
-      inventory
-        .exportState()
-        .slots?.some((slot) => slot?.itemId === ironItemId && slot.count === 3),
+      allSavedStacks(inventory.exportState()).some(
+        (slot) => slot?.itemId === ironItemId && slot.count === 3,
+      ),
     ).toBe(true);
   });
 
@@ -234,12 +765,7 @@ describe("survival inventory drops", () => {
 
     expect(inventory.addItem(itemId, 65)).toBe(true);
     expect(inventory.countItem(itemId)).toBe(65);
-    expect(
-      inventory
-        .exportState()
-        .slots?.filter((slot) => slot?.itemId === itemId)
-        .map((slot) => slot?.count),
-    ).toEqual([64, 1]);
+    expect(stackCountsFor(inventory.exportState(), itemId)).toEqual([64, 1]);
   });
 
   it("moves generated material items into material storage", () => {
@@ -254,7 +780,6 @@ describe("survival inventory drops", () => {
       "survival",
       () => {},
       registry,
-      () => {},
       storage,
       onStorageChanged,
     );
@@ -295,6 +820,30 @@ describe("survival inventory drops", () => {
     );
   });
 
+  it("generated material swatch still appears in rendered slots", () => {
+    const elements = stubInventoryDocument();
+    const registry = materialRegistry();
+    const material = generatedMaterial("generated:rendered-visual", 82);
+
+    registry.registerGeneratedMaterial(material);
+    const inventory = new Inventory("survival", () => {}, registry);
+
+    inventory.setSlot(0, {
+      itemId: itemIdForMaterial(material.id),
+      count: 1,
+    });
+
+    const renderedSlot = lastReplaceChildrenArgs(elements.hotbar)[0];
+
+    expect(renderedSlot?.classList.add).toHaveBeenCalledWith(
+      "generated-material-visual",
+    );
+    expect(renderedSlot?.style.setProperty).toHaveBeenCalledWith(
+      "--item-base-color",
+      materialVisualsForMaterial(material).baseColor,
+    );
+  });
+
   it("uses fallback swatch visuals for unknown generated material items", () => {
     const registry = materialRegistry();
     const item = itemDefinitionFor(
@@ -327,29 +876,6 @@ describe("survival inventory drops", () => {
 
     expect(inventory.grantItem(itemId, 1)).toBe(true);
     expect(inventory.selectedItemId()).toBe(itemId);
-  });
-
-  it("assembles modified tools from a base tool and material item", () => {
-    stubInventoryDocument();
-    const registry = materialRegistry();
-    const inventory = new Inventory("survival", () => {}, registry);
-    const materialItemId = itemIdForMaterial("element:iron");
-    const modifiedToolId = modifiedToolItemId("tool:pickaxe", "element:iron");
-
-    expect(inventory.addItem(materialItemId, 1)).toBe(true);
-    expect(
-      inventory.craftRecipe(
-        modifiedToolRecipeId("tool:pickaxe", "element:iron"),
-      ),
-    ).toBe(true);
-    expect(inventory.countItem("tool:pickaxe")).toBe(0);
-    expect(inventory.countItem(materialItemId)).toBe(0);
-    expect(inventory.countItem(modifiedToolId)).toBe(1);
-    expect(
-      inventory
-        .exportState()
-        .slots?.some((slot) => slot?.itemId === modifiedToolId),
-    ).toBe(true);
   });
 
   it("treats stabilized generated material items as placeable dynamic blocks", () => {
@@ -390,7 +916,7 @@ describe("survival inventory drops", () => {
 
     expect(inventory.addItem(itemId, 1)).toBe(true);
     expect(inventory.countItem(itemId)).toBe(1);
-    expect(inventory.exportState().slots).toEqual(
+    expect(allSavedStacks(inventory.exportState())).toEqual(
       expect.arrayContaining([
         expect.objectContaining({
           itemId,
@@ -417,36 +943,11 @@ describe("survival inventory drops", () => {
     expect(target.countItem(itemId)).toBe(7);
   });
 
-  it("crafts planks, sticks, and wooden tools from recipes", () => {
+  it("does not expose crafting methods on inventory", () => {
     stubInventoryDocument();
     const inventory = new Inventory("survival");
 
-    inventory.add(TerrainMaterial.Wood, 1);
-
-    expect(inventory.craftPlanks()).toBe(true);
-    expect(inventory.count(TerrainMaterial.Wood)).toBe(0);
-    expect(inventory.count(TerrainMaterial.Planks)).toBe(4);
-
-    expect(inventory.craftRecipe("planks_to_sticks")).toBe(true);
-    expect(inventory.count(TerrainMaterial.Planks)).toBe(2);
-    expect(inventory.countItem("material:stick")).toBe(4);
-
-    expect(inventory.craftRecipe("wooden_shovel")).toBe(true);
-    expect(inventory.count(TerrainMaterial.Planks)).toBe(1);
-    expect(inventory.countItem("material:stick")).toBe(2);
-    expect(
-      inventory
-        .exportState()
-        .slots?.some((slot) => slot?.itemId === "tool:shovel"),
-    ).toBe(true);
-  });
-
-  it("does not consume ingredients when crafting in creative mode", () => {
-    stubInventoryDocument();
-    const inventory = new Inventory("creative");
-    const before = inventory.exportState();
-
-    expect(inventory.craftRecipe("wood_to_planks")).toBe(true);
-    expect(inventory.exportState()).toEqual(before);
+    expect("craftRecipe" in inventory).toBe(false);
+    expect("craftPlanks" in inventory).toBe(false);
   });
 });

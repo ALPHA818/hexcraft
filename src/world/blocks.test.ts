@@ -3,10 +3,12 @@ import { describe, expect, it } from "vitest";
 import { TerrainMaterial } from "../geometry/terrainChunk.ts";
 import {
   BLOCK_DEFINITIONS,
+  WORKBENCH_BLOCK_IDS,
   blockDefinitionFor,
   materialProcessingStationTypeForBlock,
   minedDrop,
   minedDrops,
+  workbenchTypeForBlock,
 } from "./blocks.ts";
 
 describe("block registry", () => {
@@ -81,6 +83,39 @@ describe("block registry", () => {
     expect(
       materialProcessingStationTypeForBlock(TerrainMaterial.AssemblerStation),
     ).toBe("assembler");
+  });
+
+  it("registers workbench blocks", () => {
+    const blockIds = new Set(BLOCK_DEFINITIONS.map((block) => block.id));
+
+    for (const blockId of WORKBENCH_BLOCK_IDS) {
+      expect(blockIds.has(blockId)).toBe(true);
+    }
+
+    expect(blockDefinitionFor(TerrainMaterial.BasicWorkbench)).toMatchObject({
+      id: "basic_workbench",
+      displayName: "Basic Workbench",
+      placeable: true,
+      breakable: true,
+    });
+    expect(workbenchTypeForBlock(TerrainMaterial.BasicWorkbench)).toBe("basic");
+    expect(workbenchTypeForBlock(TerrainMaterial.MetalWorkbench)).toBe("metal");
+    expect(workbenchTypeForBlock(TerrainMaterial.MagicWorkbench)).toBe("magic");
+    expect(workbenchTypeForBlock(TerrainMaterial.OrganicWorkbench)).toBe(
+      "organic",
+    );
+    expect(workbenchTypeForBlock(TerrainMaterial.CrystalWorkbench)).toBe(
+      "crystal",
+    );
+    expect(workbenchTypeForBlock(TerrainMaterial.ChemicalWorkbench)).toBe(
+      "chemical",
+    );
+    expect(workbenchTypeForBlock(TerrainMaterial.AssemblerWorkbench)).toBe(
+      "assembler",
+    );
+    expect(workbenchTypeForBlock(TerrainMaterial.ElementCombiner)).toBe(
+      "element_combiner",
+    );
   });
 
   it("registers unique numeric ids", () => {

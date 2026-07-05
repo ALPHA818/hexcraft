@@ -12,8 +12,11 @@ import {
   type BlockPlacementInput,
   type BlockPlacementWorld,
   validateMaterialStationInteraction,
+  validateWorkbenchInteraction,
   validateBlockPlacement,
 } from "./BlockPlacementRules.ts";
+import { canOpenWorkbenchTestingPanel } from "../ui/WorkbenchPanel.ts";
+import { workbenchInteractionOpenTarget } from "./SurvivalController.ts";
 
 function playerPositionAt(
   q: number,
@@ -262,6 +265,67 @@ describe("block placement rules", () => {
     });
   });
 
+  it("interacts with workbench blocks", () => {
+    expect(
+      validateWorkbenchInteraction({
+        target: {
+          voxel: { q: 1, r: 0, level: 2 },
+          material: TerrainMaterial.BasicWorkbench,
+          distance: 3,
+        },
+      }),
+    ).toMatchObject({
+      ok: true,
+      workbenchType: "basic",
+      position: { q: 1, r: 0, level: 2 },
+    });
+    expect(
+      validateWorkbenchInteraction({
+        target: {
+          voxel: { q: 1, r: 0, level: 2 },
+          material: TerrainMaterial.AssemblerWorkbench,
+          distance: 3,
+        },
+      }),
+    ).toMatchObject({
+      ok: true,
+      workbenchType: "assembler",
+    });
+    expect(workbenchInteractionOpenTarget("assembler")).toEqual({
+      kind: "workbench",
+      workbenchType: "assembler",
+    });
+  });
+
+  it("routes element combiner interaction to the material combiner", () => {
+    const interaction = validateWorkbenchInteraction({
+      target: {
+        voxel: { q: 1, r: 0, level: 2 },
+        material: TerrainMaterial.ElementCombiner,
+        distance: 3,
+      },
+    });
+
+    expect(interaction).toMatchObject({
+      ok: true,
+      workbenchType: "element_combiner",
+    });
+    expect(
+      interaction.ok
+        ? workbenchInteractionOpenTarget(interaction.workbenchType)
+        : null,
+    ).toEqual({
+      kind: "material_combiner",
+      stationType: "combiner",
+    });
+  });
+
+  it("requires placed workbenches for survival testing panels", () => {
+    expect(canOpenWorkbenchTestingPanel("survival", false)).toBe(false);
+    expect(canOpenWorkbenchTestingPanel("survival", true)).toBe(true);
+    expect(canOpenWorkbenchTestingPanel("creative", false)).toBe(true);
+  });
+
   it("does not interact with non-station blocks", () => {
     expect(
       validateMaterialStationInteraction({
@@ -272,5 +336,14 @@ describe("block placement rules", () => {
         },
       }),
     ).toEqual({ ok: false, reason: "not_station" });
+    expect(
+      validateWorkbenchInteraction({
+        target: {
+          voxel: { q: 1, r: 0, level: 2 },
+          material: TerrainMaterial.Stone,
+          distance: 3,
+        },
+      }),
+    ).toEqual({ ok: false, reason: "not_workbench" });
   });
 });

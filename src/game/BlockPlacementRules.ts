@@ -17,8 +17,10 @@ import {
 import {
   blockDefinitionFor,
   materialProcessingStationTypeForBlock,
+  workbenchTypeForBlock,
 } from "../world/blocks.ts";
 import type { MaterialProcessingStationType } from "../materials/MaterialTypes.ts";
+import type { WorkbenchType } from "../crafting/WorkbenchTypes.ts";
 import type { GameMode } from "./gameMode.ts";
 
 export const BLOCK_PLACEMENT_REACH = 6;
@@ -87,6 +89,22 @@ export type MaterialStationInteractionFailure = Readonly<{
 export type MaterialStationInteractionResult =
   MaterialStationInteractionSuccess | MaterialStationInteractionFailure;
 
+export type WorkbenchInteractionInput = MaterialStationInteractionInput;
+
+export type WorkbenchInteractionSuccess = Readonly<{
+  ok: true;
+  workbenchType: WorkbenchType;
+  position: VoxelPosition;
+}>;
+
+export type WorkbenchInteractionFailure = Readonly<{
+  ok: false;
+  reason: "missing_target" | "out_of_reach" | "not_workbench";
+}>;
+
+export type WorkbenchInteractionResult =
+  WorkbenchInteractionSuccess | WorkbenchInteractionFailure;
+
 const FAILURE_MESSAGES: Record<BlockPlacementFailureReason, string> = {
   missing_target: "Aim at a block first.",
   out_of_reach: "Too far away.",
@@ -128,6 +146,30 @@ export function validateMaterialStationInteraction(
   return {
     ok: true,
     stationType,
+    position: input.target.voxel,
+  };
+}
+
+export function validateWorkbenchInteraction(
+  input: WorkbenchInteractionInput,
+): WorkbenchInteractionResult {
+  if (!input.target) {
+    return { ok: false, reason: "missing_target" };
+  }
+
+  if (input.target.distance > (input.maximumReach ?? BLOCK_PLACEMENT_REACH)) {
+    return { ok: false, reason: "out_of_reach" };
+  }
+
+  const workbenchType = workbenchTypeForBlock(input.target.material);
+
+  if (!workbenchType) {
+    return { ok: false, reason: "not_workbench" };
+  }
+
+  return {
+    ok: true,
+    workbenchType,
     position: input.target.voxel,
   };
 }

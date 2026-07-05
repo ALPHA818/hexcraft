@@ -57,7 +57,10 @@ export type LegacySerializedInventoryItem = Readonly<{
 }>;
 
 export type SerializedInventory = Readonly<{
-  selectedIndex: number;
+  selectedHotbarIndex?: number;
+  hotbar?: readonly (SerializedItemStack | null)[];
+  backpack?: readonly (SerializedItemStack | null)[];
+  selectedIndex?: number;
   slots?: readonly (SerializedItemStack | null)[];
   items?: readonly LegacySerializedInventoryItem[];
 }>;
@@ -185,8 +188,7 @@ export function settingsFromMetadata(
 
 export function emptyInventorySave(): SerializedInventory {
   return {
-    selectedIndex: 0,
-    slots: [],
+    selectedHotbarIndex: 0,
   };
 }
 

@@ -23,6 +23,8 @@ export type GameDomElements = Readonly<{
   materialCombinerRoot: HTMLElement;
   materialResearchRoot: HTMLElement;
   materialStorageRoot: HTMLElement;
+  creativeCatalogRoot: HTMLElement;
+  workbenchRoot: HTMLElement;
   deathScreenRoot: HTMLElement;
   mobileControlsRoot: HTMLElement | null;
 }>;
@@ -77,6 +79,11 @@ export function readGameDom(): GameDomElements {
       "#material-storage",
       "material storage",
     ),
+    creativeCatalogRoot: queryRequiredElement<HTMLElement>(
+      "#creative-catalog",
+      "creative catalog",
+    ),
+    workbenchRoot: queryRequiredElement<HTMLElement>("#workbench", "workbench"),
     deathScreenRoot: queryRequiredElement<HTMLElement>(
       "#death-screen",
       "death screen",

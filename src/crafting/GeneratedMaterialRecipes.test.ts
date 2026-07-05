@@ -77,6 +77,7 @@ describe("generated material recipes", () => {
       expect.arrayContaining([
         expect.objectContaining({
           generatedRecipeKind: "tool_upgrade",
+          workbenchType: "assembler",
           inputs: [
             { itemId: "tool:pickaxe", count: 1 },
             { itemId: itemIdForMaterial(material.id), count: 1 },
@@ -113,6 +114,7 @@ describe("generated material recipes", () => {
       expect.arrayContaining([
         expect.objectContaining({
           generatedRecipeKind: "stabilized_block",
+          workbenchType: "crystal",
           outputs: [{ itemId: itemIdForMaterial(material.id), count: 1 }],
         }),
       ]),
@@ -135,6 +137,7 @@ describe("generated material recipes", () => {
       expect.arrayContaining([
         expect.objectContaining({
           generatedRecipeKind: "magic_core",
+          workbenchType: "magic",
           outputs: [
             { itemId: GENERATED_MATERIAL_RECIPE_OUTPUTS.magicCore, count: 1 },
           ],
@@ -160,6 +163,7 @@ describe("generated material recipes", () => {
       expect.arrayContaining([
         expect.objectContaining({
           generatedRecipeKind: "fuel_cell",
+          workbenchType: "chemical",
           outputs: [
             { itemId: GENERATED_MATERIAL_RECIPE_OUTPUTS.fuelCell, count: 1 },
           ],
@@ -185,6 +189,7 @@ describe("generated material recipes", () => {
       expect.arrayContaining([
         expect.objectContaining({
           generatedRecipeKind: "explosive_compound",
+          workbenchType: "chemical",
           outputs: [
             {
               itemId: GENERATED_MATERIAL_RECIPE_OUTPUTS.explosiveCompound,
@@ -213,6 +218,7 @@ describe("generated material recipes", () => {
       expect.arrayContaining([
         expect.objectContaining({
           generatedRecipeKind: "circuit",
+          workbenchType: "metal",
           outputs: [
             { itemId: GENERATED_MATERIAL_RECIPE_OUTPUTS.circuit, count: 1 },
           ],

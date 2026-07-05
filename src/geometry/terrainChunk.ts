@@ -60,6 +60,13 @@ export const enum TerrainMaterial {
   StabilizerStation = 28,
   InfuserStation = 29,
   AssemblerStation = 30,
+  BasicWorkbench = 31,
+  MetalWorkbench = 32,
+  MagicWorkbench = 33,
+  OrganicWorkbench = 34,
+  CrystalWorkbench = 35,
+  ChemicalWorkbench = 36,
+  AssemblerWorkbench = 37,
 }
 
 export function isFluidMaterial(material: TerrainMaterial): boolean {
@@ -280,6 +287,20 @@ function textureFor(
     case TerrainMaterial.InfuserStation:
       return BlockTexture.CrystalOre;
     case TerrainMaterial.AssemblerStation:
+      return BlockTexture.Planks;
+    case TerrainMaterial.BasicWorkbench:
+      return BlockTexture.Planks;
+    case TerrainMaterial.MetalWorkbench:
+      return BlockTexture.DeepStone;
+    case TerrainMaterial.MagicWorkbench:
+      return BlockTexture.CrystalOre;
+    case TerrainMaterial.OrganicWorkbench:
+      return BlockTexture.Wood;
+    case TerrainMaterial.CrystalWorkbench:
+      return BlockTexture.CrystalOre;
+    case TerrainMaterial.ChemicalWorkbench:
+      return BlockTexture.Sand;
+    case TerrainMaterial.AssemblerWorkbench:
       return BlockTexture.Planks;
     case TerrainMaterial.Torch:
       return BlockTexture.Torch;

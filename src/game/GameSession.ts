@@ -23,6 +23,7 @@ import type { MaterialWorldController } from "./MaterialWorldController.ts";
 import type { SurvivalController } from "./SurvivalController.ts";
 import type { SurvivalStatsController } from "./SurvivalStatsController.ts";
 import type { GameRenderer, RendererBackend } from "./GameBootstrap.ts";
+import type { WorkbenchController } from "./WorkbenchController.ts";
 
 export type ActiveGame = Readonly<{
   id: number;
@@ -34,6 +35,7 @@ export type ActiveGame = Readonly<{
   entityManager: EntityManager;
   entityRenderer: EntityRenderer;
   inventory: Inventory;
+  workbenchController: WorkbenchController;
   materialWorld: MaterialWorldController;
   materialTestingKit: MaterialTestingKit;
   materialHazardState: MaterialHazardState;
@@ -52,6 +54,8 @@ export type ActiveGame = Readonly<{
 
 export function hasSavedInventory(inventory: SerializedInventory): boolean {
   return (
+    inventory.hotbar !== undefined ||
+    inventory.backpack !== undefined ||
     (inventory.slots !== undefined && inventory.slots.length > 0) ||
     (inventory.items !== undefined && inventory.items.length > 0)
   );

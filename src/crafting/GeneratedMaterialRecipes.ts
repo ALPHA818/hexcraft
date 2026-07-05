@@ -15,6 +15,7 @@ import {
   type ModifiableBaseToolItemId,
 } from "../items/ModifiedToolTypes.ts";
 import type { Recipe, ShapelessRecipe } from "./RecipeTypes.ts";
+import type { WorkbenchType } from "./WorkbenchTypes.ts";
 
 export type GeneratedMaterialRecipeKind =
   | "tool_upgrade"
@@ -62,16 +63,35 @@ function materialItemInput(material: MaterialDefinition, count = 1) {
   return { itemId: itemIdForMaterial(material.id), count };
 }
 
+export function workbenchForGeneratedMaterialRecipe(
+  kind: GeneratedMaterialRecipeKind,
+): WorkbenchType {
+  if (kind === "tool_upgrade") {
+    return "assembler";
+  }
+  if (kind === "stabilized_block") {
+    return "crystal";
+  }
+  if (kind === "magic_core") {
+    return "magic";
+  }
+  if (kind === "circuit") {
+    return "metal";
+  }
+
+  return "chemical";
+}
+
 function materialRecipe(
   material: MaterialDefinition,
   kind: GeneratedMaterialRecipeKind,
   capabilityGrade: number,
-  recipe: Omit<ShapelessRecipe, "type" | "station"> &
-    Partial<Pick<ShapelessRecipe, "station">>,
+  recipe: Omit<ShapelessRecipe, "type" | "workbenchType"> &
+    Partial<Pick<ShapelessRecipe, "workbenchType">>,
 ): GeneratedMaterialRecipe {
   return {
     type: "shapeless",
-    station: "assembler",
+    workbenchType: workbenchForGeneratedMaterialRecipe(kind),
     ...recipe,
     generatedMaterialId: material.id,
     generatedRecipeKind: kind,
