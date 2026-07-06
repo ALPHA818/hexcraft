@@ -272,12 +272,16 @@ export class CreativeCatalogPanel {
     closeButton.type = "button";
     closeButton.className = "creative-catalog-close";
     closeButton.textContent = "Close";
+    closeButton.title = "Close creative catalog";
+    closeButton.setAttribute("aria-label", "Close creative catalog");
     closeButton.addEventListener("click", () => this.hide());
     titleGroup.append(title, subtitle);
     header.append(titleGroup, closeButton);
 
     searchInput.type = "search";
     searchInput.placeholder = "Search name or id";
+    searchInput.title = "Search creative catalog";
+    searchInput.setAttribute("aria-label", "Search creative catalog");
     searchInput.value = this.#query;
     searchInput.addEventListener("input", () => {
       this.#query = searchInput.value;
@@ -286,6 +290,7 @@ export class CreativeCatalogPanel {
     });
 
     tabs.className = "creative-catalog-tabs";
+    tabs.setAttribute("aria-label", "Creative catalog categories");
     tabs.replaceChildren(
       ...CREATIVE_CATALOG_CATEGORIES.map(([category, label]) =>
         this.#createCategoryButton(category, label),
@@ -315,6 +320,8 @@ export class CreativeCatalogPanel {
 
       previousButton.type = "button";
       previousButton.textContent = "Previous";
+      previousButton.title = "Previous catalog page";
+      previousButton.setAttribute("aria-label", "Previous catalog page");
       previousButton.disabled = page.page <= 0;
       previousButton.addEventListener("click", () => {
         this.#page -= 1;
@@ -322,6 +329,8 @@ export class CreativeCatalogPanel {
       });
       nextButton.type = "button";
       nextButton.textContent = "Next";
+      nextButton.title = "Next catalog page";
+      nextButton.setAttribute("aria-label", "Next catalog page");
       nextButton.disabled = page.page >= page.pageCount - 1;
       nextButton.addEventListener("click", () => {
         this.#page += 1;
@@ -334,9 +343,13 @@ export class CreativeCatalogPanel {
     if (!pageIndicator.textContent) {
       previousButton.type = "button";
       previousButton.textContent = "Previous";
+      previousButton.title = "Previous catalog page";
+      previousButton.setAttribute("aria-label", "Previous catalog page");
       previousButton.disabled = true;
       nextButton.type = "button";
       nextButton.textContent = "Next";
+      nextButton.title = "Next catalog page";
+      nextButton.setAttribute("aria-label", "Next catalog page");
       nextButton.disabled = true;
       pageIndicator.className = "creative-catalog-page";
       pageIndicator.textContent = "Page 1 / 1";
@@ -370,6 +383,8 @@ export class CreativeCatalogPanel {
     button.textContent = label;
     button.className = "creative-catalog-tab";
     button.classList.toggle("selected", category === this.#category);
+    button.title = `Show ${label}`;
+    button.setAttribute("aria-label", `Show ${label}`);
     button.addEventListener("click", () => {
       this.#category = category;
       this.#page = 0;
@@ -392,6 +407,10 @@ export class CreativeCatalogPanel {
     card.className = `creative-catalog-item-card ${safeItemClass(item.id)}`;
     card.classList.add(`creative-catalog-kind-${item.kind}`);
     card.title = item.displayName;
+    card.setAttribute(
+      "aria-label",
+      `Grant ${creativeCatalogGrantCount(item)} ${item.displayName}`,
+    );
     swatch.className = "item-swatch";
     this.#applyItemVisual(card, item);
     name.textContent = item.displayName;

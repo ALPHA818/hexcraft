@@ -1,6 +1,19 @@
 import type { GameMode } from "../game/gameMode.ts";
 import type { TerrainBiome } from "../geometry/terrainChunk.ts";
 import type { PerformanceStats } from "../performance/PerformanceMonitor.ts";
+import type { WeatherKind } from "../environment/Atmosphere.ts";
+
+export type DebugOverlayWeatherSnapshot = Readonly<{
+  cellX: number;
+  cellZ: number;
+  timeBucket: number;
+  cellWeather: WeatherKind;
+  localWeather: WeatherKind;
+  localIntensity: number;
+  wind: readonly [number, number];
+  cloudSample?: readonly [number, number];
+  particleCount?: number;
+}>;
 
 export type DebugOverlaySnapshot = Readonly<{
   performance: PerformanceStats;
@@ -9,6 +22,7 @@ export type DebugOverlaySnapshot = Readonly<{
   level: number;
   biome: TerrainBiome;
   gameMode: GameMode;
+  weather?: DebugOverlayWeatherSnapshot;
 }>;
 
 type DebugOverlayRow = readonly [label: string, value: string];
@@ -35,6 +49,41 @@ export function debugOverlayRows(
     ["Axial", `q ${snapshot.axial.q}, r ${snapshot.axial.r}`],
     ["Level", String(snapshot.level)],
     ["Biome", snapshot.biome],
+    ...(snapshot.weather
+      ? ([
+          [
+            "Weather zone",
+            `${snapshot.weather.localWeather} ${snapshot.weather.localIntensity.toFixed(2)} in cell ${snapshot.weather.cellX}, ${snapshot.weather.cellZ}`,
+          ],
+          [
+            "Weather cell",
+            `${snapshot.weather.cellX}, ${snapshot.weather.cellZ} @ ${snapshot.weather.timeBucket}`,
+          ],
+          ["Cell weather", snapshot.weather.cellWeather],
+          ["Local weather", snapshot.weather.localWeather],
+          ["Local intensity", snapshot.weather.localIntensity.toFixed(2)],
+          [
+            "Wind direction",
+            `${snapshot.weather.wind[0].toFixed(2)}, ${snapshot.weather.wind[1].toFixed(2)}`,
+          ],
+          ...(snapshot.weather.cloudSample
+            ? ([
+                [
+                  "Cloud sample",
+                  `${snapshot.weather.cloudSample[0].toFixed(1)}, ${snapshot.weather.cloudSample[1].toFixed(1)}`,
+                ],
+              ] as const)
+            : []),
+          ...(snapshot.weather.particleCount !== undefined
+            ? ([
+                [
+                  "Weather particles",
+                  snapshot.weather.particleCount.toLocaleString(),
+                ],
+              ] as const)
+            : []),
+        ] as const)
+      : []),
     ["Loaded chunks", performance.loadedChunks.toLocaleString()],
     ["Mesh faces", performance.meshFaceCount.toLocaleString()],
     ["Triangles", performance.meshTriangleCount.toLocaleString()],

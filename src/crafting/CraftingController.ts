@@ -1,6 +1,7 @@
 import type { ItemId } from "../items/ItemRegistry.ts";
 import {
   recipeById,
+  recipeRequiredWorkbench,
   recipesForWorkbench as registryRecipesForWorkbench,
 } from "./RecipeRegistry.ts";
 import type { Recipe, RecipeStack } from "./RecipeTypes.ts";
@@ -47,7 +48,7 @@ export class CraftingController {
 
   recipesForWorkbench(workbenchType: WorkbenchType): readonly Recipe[] {
     return this.#allRecipes().filter(
-      (recipe) => recipe.workbenchType === workbenchType,
+      (recipe) => recipeRequiredWorkbench(recipe) === workbenchType,
     );
   }
 

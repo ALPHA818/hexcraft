@@ -65,7 +65,7 @@ function baseInput(
     playerPosition: playerPositionAt(8, 0, 1),
     world: world(),
     mode: "survival",
-    inventoryCount: 1,
+    selectedStackCount: 1,
     ...overrides,
   };
 }
@@ -113,11 +113,26 @@ describe("block placement rules", () => {
     });
   });
 
+  it("does not place backpack blocks when the selected hotbar slot is empty", () => {
+    const result = validateBlockPlacement(
+      baseInput({
+        selectedItemId: null,
+        selectedMaterial: null,
+        selectedStackCount: 0,
+      }),
+    );
+
+    expect(result).toMatchObject({
+      ok: false,
+      reason: "non_placeable_item",
+    });
+  });
+
   it("cannot place without inventory in survival", () => {
     const result = validateBlockPlacement(
       baseInput({
         mode: "survival",
-        inventoryCount: 0,
+        selectedStackCount: 0,
       }),
     );
 
@@ -131,7 +146,7 @@ describe("block placement rules", () => {
     const result = validateBlockPlacement(
       baseInput({
         mode: "creative",
-        inventoryCount: 0,
+        selectedStackCount: 0,
       }),
     );
 
@@ -182,6 +197,36 @@ describe("block placement rules", () => {
       ok: true,
       consumeItem: true,
       material: TerrainMaterial.DynamicMaterial,
+    });
+  });
+
+  it("cannot place unstabilized generated material items", () => {
+    const result = validateBlockPlacement(
+      baseInput({
+        selectedItemId: "generated-material:generated:unstable-block",
+        selectedMaterial: null,
+      }),
+    );
+
+    expect(result).toMatchObject({
+      ok: false,
+      reason: "unstabilized_material",
+      message: "Stabilize this material before placing it.",
+    });
+  });
+
+  it("can place workbench blocks from the selected slot", () => {
+    const result = validateBlockPlacement(
+      baseInput({
+        selectedItemId: "block:basic_workbench",
+        selectedMaterial: TerrainMaterial.BasicWorkbench,
+      }),
+    );
+
+    expect(result).toMatchObject({
+      ok: true,
+      consumeItem: true,
+      material: TerrainMaterial.BasicWorkbench,
     });
   });
 

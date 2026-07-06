@@ -1,5 +1,14 @@
 import { DEVICE_PROFILE } from "../platform/deviceProfile.ts";
 import {
+  WorldAtmosphere,
+  type AtmosphereObserver,
+  type WorldAtmosphereSnapshot,
+} from "./WorldAtmosphere.ts";
+import {
+  WorldWeatherParticles,
+  type WorldWeatherParticle,
+} from "./WorldWeatherParticles.ts";
+import {
   rendererLightingValues,
   type RendererLightingValues,
 } from "../world/Lighting.ts";
@@ -26,6 +35,9 @@ export type AtmosphereState = Readonly<{
   timeSeconds: number;
   weather: WeatherKind;
   rendererLighting: RendererLightingValues;
+  fogDensity?: number;
+  worldAtmosphere?: WorldAtmosphereSnapshot;
+  weatherParticles?: readonly WorldWeatherParticle[];
 }>;
 
 export type AtmosphereOptions = Readonly<{
@@ -61,15 +73,6 @@ type WeatherAvailability = Readonly<{
   enableWeather?: boolean;
   allowSandstorm?: boolean;
 }>;
-
-type Particle = {
-  x: number;
-  y: number;
-  speed: number;
-  length: number;
-  drift: number;
-  phase: number;
-};
 
 export const WEATHER_SEQUENCE: readonly WeatherKind[] = [
   "clear",
@@ -299,6 +302,20 @@ export function createWeatherSchedule(
   };
 }
 
+export function weatherScheduleAtTime(
+  seed: number,
+  timeSeconds: number,
+  initialWeather: WeatherKind = "clear",
+  availability: WeatherAvailability = {},
+): WeatherSchedule {
+  return advanceWeatherSchedule(
+    createWeatherSchedule(seed, initialWeather, availability),
+    Math.max(0, timeSeconds),
+    seed,
+    availability,
+  );
+}
+
 export function advanceWeatherSchedule(
   schedule: WeatherSchedule,
   deltaSeconds: number,
@@ -435,7 +452,8 @@ export class Atmosphere {
   readonly #canvas: HTMLCanvasElement;
   readonly #context: CanvasRenderingContext2D;
   readonly #status: HTMLElement;
-  readonly #particles: Particle[] = [];
+  readonly #worldAtmosphere: WorldAtmosphere;
+  readonly #weatherParticles: WorldWeatherParticles;
   readonly #enableWeather: boolean;
   readonly #enableDayNightCycle: boolean;
   readonly #gameTime: GameTime;
@@ -449,8 +467,12 @@ export class Atmosphere {
   #lightning = 0;
   #lightningSecondAccumulator = 0;
   #lightningSecondIndex = 0;
-  #particleSpawnSalt = 50_000;
   #isActive = true;
+  #observer: AtmosphereObserver = {
+    position: [0, 0, 0],
+    direction: [0, 0, -1],
+    biome: null,
+  };
   #state: AtmosphereState;
 
   constructor(options: AtmosphereOptions = {}) {
@@ -478,6 +500,11 @@ export class Atmosphere {
     this.#gameTime =
       options.gameTime ?? new GameTime({ timeOfDay: DEFAULT_TIME_OF_DAY });
     this.#weatherSeed = normalizedSeed(options.weatherSeed ?? 1);
+    this.#worldAtmosphere = new WorldAtmosphere({ seed: this.#weatherSeed });
+    this.#weatherParticles = new WorldWeatherParticles(
+      this.#weatherSeed,
+      DEVICE_PROFILE.weatherParticles,
+    );
     this.#allowManualWeatherCycle = options.allowManualWeatherCycle ?? false;
     this.#allowManualTimeCycle = options.allowManualTimeCycle ?? false;
     this.#enableSandstorms = options.enableSandstorms ?? false;
@@ -493,31 +520,13 @@ export class Atmosphere {
       requestedWeather && WEATHER_SEQUENCE.includes(requestedWeather)
         ? requestedWeather
         : "clear";
-    this.#weatherSchedule = createWeatherSchedule(
+    this.#weatherSchedule = weatherScheduleAtTime(
       this.#weatherSeed,
+      this.#gameTime.totalTimeSeconds,
       initialWeather,
       this.#weatherAvailability(),
     );
-    this.#state = this.#calculateState();
-
-    for (let index = 0; index < DEVICE_PROFILE.weatherParticles; index += 1) {
-      this.#particles.push({
-        x: seededWeatherRandom(this.#weatherSeed, 10_000 + index * 6),
-        y: seededWeatherRandom(this.#weatherSeed, 10_001 + index * 6),
-        speed:
-          0.45 +
-          seededWeatherRandom(this.#weatherSeed, 10_002 + index * 6) * 0.75,
-        length:
-          8 + seededWeatherRandom(this.#weatherSeed, 10_003 + index * 6) * 18,
-        drift:
-          -0.1 +
-          seededWeatherRandom(this.#weatherSeed, 10_004 + index * 6) * 0.08,
-        phase:
-          seededWeatherRandom(this.#weatherSeed, 10_005 + index * 6) *
-          Math.PI *
-          2,
-      });
-    }
+    this.#state = this.#calculateStateWithParticles(0);
 
     document.addEventListener("keydown", (event) => {
       if (!this.#isActive) {
@@ -542,11 +551,15 @@ export class Atmosphere {
     return this.#state;
   }
 
-  update(deltaSeconds: number): void {
+  update(
+    deltaSeconds: number,
+    observer: AtmosphereObserver = this.#observer,
+  ): void {
     if (!this.#isActive) {
       return;
     }
 
+    this.#observer = observer;
     const delta = Math.min(deltaSeconds, 0.05);
     const previousWeather = this.#weatherSchedule.weather;
 
@@ -575,9 +588,9 @@ export class Atmosphere {
     }
 
     this.#updateLightning(delta);
-    this.#state = this.#calculateState();
+    this.#state = this.#calculateStateWithParticles(delta);
     this.#applyDom();
-    this.#drawWeather(delta);
+    this.#drawWeather();
   }
 
   cycleWeather(): void {
@@ -602,7 +615,7 @@ export class Atmosphere {
       ),
     };
     this.#resetLightningClock();
-    this.#state = this.#calculateState();
+    this.#state = this.#calculateStateWithParticles(0);
     this.#applyDom();
   }
 
@@ -616,7 +629,7 @@ export class Atmosphere {
     }
 
     this.#gameTime.skipHours(hours);
-    this.#state = this.#calculateState();
+    this.#state = this.#calculateStateWithParticles(0);
     this.#applyDom();
   }
 
@@ -636,11 +649,54 @@ export class Atmosphere {
     const weather = this.#enableWeather
       ? this.#weatherSchedule.weather
       : "clear";
-    return calculateAtmosphereState(
-      this.#gameTime.timeSeconds,
-      weather,
+    const weatherTimeSeconds = this.#gameTime.totalTimeSeconds;
+    const worldAtmosphere = this.#worldAtmosphere.snapshot({
+      observer: this.#observer,
+      timeSeconds: weatherTimeSeconds,
+      baseWeather: weather,
+      enableWeather: this.#enableWeather,
+      allowSandstorm: this.#weatherAvailability().allowSandstorm,
+    });
+    const state = calculateAtmosphereState(
+      weatherTimeSeconds,
+      worldAtmosphere.weather,
       this.#lightning,
     );
+    const ambient = Math.max(
+      0.04,
+      state.ambient * (1 - worldAtmosphere.fogDensity * 0.16),
+    );
+
+    return {
+      ...state,
+      ambient,
+      weatherIntensity: worldAtmosphere.weatherIntensity,
+      cloudCover: worldAtmosphere.cloudCover,
+      fogDensity: worldAtmosphere.fogDensity,
+      worldAtmosphere,
+      rendererLighting: rendererLightingValues({
+        ambient,
+        daylight: state.daylight,
+        weatherIntensity: worldAtmosphere.weatherIntensity,
+      }),
+    };
+  }
+
+  #calculateStateWithParticles(delta: number): AtmosphereState {
+    const state = this.#calculateState();
+
+    this.#weatherParticles.update({
+      deltaSeconds: delta,
+      timeSeconds: state.timeSeconds,
+      weather: state.weather,
+      intensity: state.weatherIntensity,
+      observerPosition: this.#observer.position,
+    });
+
+    return {
+      ...state,
+      weatherParticles: this.#weatherParticles.snapshot(),
+    };
   }
 
   #resetLightningClock(): void {
@@ -676,26 +732,16 @@ export class Atmosphere {
   #applyDom(): void {
     const state = this.#state;
     const profile = WEATHER_PROFILES[state.weather];
-    const dayTop: [number, number, number] = [0.18, 0.46, 0.72];
-    const dayHorizon: [number, number, number] = [0.76, 0.88, 0.9];
-    const nightTop: [number, number, number] = [0.015, 0.025, 0.075];
-    const nightHorizon: [number, number, number] = [0.08, 0.11, 0.18];
-    const twilightTop: [number, number, number] = [0.19, 0.08, 0.27];
-    const twilightHorizon: [number, number, number] = [1, 0.31, 0.12];
-    const overcast: [number, number, number] = [0.25, 0.31, 0.35];
+    const worldAtmosphere = state.worldAtmosphere;
     const sunPhase = this.#gameTime.timeOfDay;
     const sunAngle = this.#gameTime.sunAngle;
     const sunHeight = Math.sin(sunAngle);
     const night = smoothStep(
       Math.max(0, Math.min(1, (-sunHeight + 0.04) / 0.52)),
     );
-    const twilight = Math.max(0, 1 - Math.abs(sunHeight + 0.01) / 0.3);
-    let top = mixColor(nightTop, dayTop, state.daylight);
-    let horizon = mixColor(nightHorizon, dayHorizon, state.daylight);
-    top = mixColor(top, twilightTop, twilight * 0.7);
-    horizon = mixColor(horizon, twilightHorizon, twilight * 0.88);
-    top = mixColor(top, overcast, state.cloudCover * 0.42);
-    horizon = mixColor(horizon, overcast, state.cloudCover * 0.32);
+    let top = worldAtmosphere?.celestial.skyColor ?? [0.18, 0.46, 0.72];
+    let horizon = worldAtmosphere?.celestial.horizonColor ?? [0.76, 0.88, 0.9];
+
     top = mixColor(top, profile.skyTop, profile.skyTint);
     horizon = mixColor(horizon, profile.skyHorizon, profile.skyTint * 0.86);
     const sunX = 50 + Math.cos(sunPhase * Math.PI * 2) * 37;
@@ -717,8 +763,28 @@ export class Atmosphere {
     this.#moon.style.top = `${moonY}%`;
     this.#moon.style.opacity = `${night * celestialCloudFade}`;
     this.#clouds.style.opacity =
-      state.weather === "clear" ? "0" : `${Math.pow(state.cloudCover, 1.35)}`;
+      state.weather === "clear"
+        ? "0"
+        : `${worldAtmosphere?.clouds.opacity ?? Math.pow(state.cloudCover, 1.35)}`;
     this.#clouds.style.filter = `brightness(${0.48 + state.daylight * 0.62}) blur(${state.weather === "fog" ? 4 : 2}px)`;
+    if (worldAtmosphere) {
+      this.#clouds.style.setProperty(
+        "--cloud-offset-x",
+        `${worldAtmosphere.clouds.textureOffsetX}px`,
+      );
+      this.#clouds.style.setProperty(
+        "--cloud-offset-y",
+        `${worldAtmosphere.clouds.textureOffsetY}px`,
+      );
+      this.#clouds.style.setProperty(
+        "--cloud-screen-x",
+        `${worldAtmosphere.clouds.screenOffsetX}px`,
+      );
+      this.#clouds.style.setProperty(
+        "--cloud-screen-y",
+        `${worldAtmosphere.clouds.screenOffsetY}px`,
+      );
+    }
     const controls = [
       this.#enableWeather && this.#allowManualWeatherCycle ? "T weather" : null,
       this.#enableDayNightCycle && this.#allowManualTimeCycle ? "N +3h" : null,
@@ -734,7 +800,10 @@ export class Atmosphere {
     document.body.style.setProperty("--lightning", `${this.#lightning * 0.68}`);
     document.body.style.setProperty(
       "--weather-haze",
-      `${Math.min(0.42, state.weatherIntensity * profile.fogMix * 0.28)}`,
+      `${Math.min(
+        0.42,
+        (state.fogDensity ?? state.weatherIntensity * profile.fogMix) * 0.32,
+      )}`,
     );
     document.body.style.setProperty(
       "--weather-haze-color",
@@ -757,169 +826,7 @@ export class Atmosphere {
     );
   }
 
-  #nextParticleSpawnX(): number {
-    const x = seededWeatherRandom(this.#weatherSeed, this.#particleSpawnSalt);
-    this.#particleSpawnSalt += 1;
-
-    return x;
-  }
-
-  #drawFogLikeWeather(
-    count: number,
-    delta: number,
-    color: string,
-    speedScale: number,
-  ): void {
-    const context = this.#context;
-    const width = this.#canvas.width;
-    const height = this.#canvas.height;
-    const timeSeconds = this.#gameTime.timeSeconds;
-
-    context.fillStyle = color;
-    for (let index = 0; index < count; index += 1) {
-      const particle = this.#particles[index]!;
-      particle.x += (particle.drift * 0.28 + 0.012) * delta * speedScale;
-      particle.y += Math.sin(timeSeconds * 0.4 + particle.phase) * 0.0008;
-
-      if (particle.x > 1.12) {
-        particle.x = -0.12;
-        particle.y = seededWeatherRandom(
-          this.#weatherSeed,
-          this.#particleSpawnSalt++,
-        );
-      }
-
-      context.beginPath();
-      context.ellipse(
-        particle.x * width,
-        particle.y * height,
-        particle.length * 4.8,
-        particle.length * 1.1,
-        Math.sin(particle.phase) * 0.2,
-        0,
-        Math.PI * 2,
-      );
-      context.fill();
-    }
-  }
-
-  #drawWeather(delta: number): void {
-    const context = this.#context;
-    const width = this.#canvas.width;
-    const height = this.#canvas.height;
-    const state = this.#state;
-    const timeSeconds = this.#gameTime.timeSeconds;
-    context.clearRect(0, 0, width, height);
-
-    if (state.weather === "clear") {
-      return;
-    }
-
-    const count = Math.floor(this.#particles.length * state.weatherIntensity);
-    const scale = Math.min(
-      window.devicePixelRatio,
-      DEVICE_PROFILE.maxPixelRatio,
-    );
-
-    if (state.weather === "snow") {
-      context.fillStyle = "rgb(245 250 255 / 78%)";
-      for (let index = 0; index < count; index += 1) {
-        const particle = this.#particles[index]!;
-        particle.y += particle.speed * delta * 0.22;
-        particle.x +=
-          (particle.drift +
-            Math.sin(timeSeconds * 1.8 + particle.phase) * 0.035) *
-          delta;
-        if (particle.y > 1.04) {
-          particle.y = -0.04;
-          particle.x = this.#nextParticleSpawnX();
-        }
-        if (particle.x < -0.04) particle.x = 1.04;
-        if (particle.x > 1.04) particle.x = -0.04;
-        context.beginPath();
-        context.arc(
-          particle.x * width,
-          particle.y * height,
-          (1.5 + particle.length * 0.08) * scale,
-          0,
-          Math.PI * 2,
-        );
-        context.fill();
-      }
-      return;
-    }
-
-    if (state.weather === "fog") {
-      this.#drawFogLikeWeather(count, delta, "rgb(226 232 225 / 10%)", 0.8);
-      return;
-    }
-
-    if (state.weather === "cloudy") {
-      this.#drawFogLikeWeather(
-        Math.floor(count * 0.55),
-        delta,
-        "rgb(214 224 224 / 5%)",
-        0.35,
-      );
-      return;
-    }
-
-    if (state.weather === "sandstorm") {
-      context.strokeStyle = "rgb(226 176 92 / 36%)";
-      context.lineWidth = Math.max(1, scale * 1.25);
-      context.beginPath();
-      for (let index = 0; index < count; index += 1) {
-        const particle = this.#particles[index]!;
-        particle.x -= particle.speed * delta * 0.6;
-        particle.y +=
-          Math.sin(timeSeconds * 4 + particle.phase) * delta * 0.015;
-        if (particle.x < -0.1) {
-          particle.x = 1.1;
-          particle.y = seededWeatherRandom(
-            this.#weatherSeed,
-            this.#particleSpawnSalt++,
-          );
-        }
-        const x = particle.x * width;
-        const y = particle.y * height;
-        const length = particle.length * scale * 2.4;
-        context.moveTo(x, y);
-        context.lineTo(x - length, y + length * 0.18);
-      }
-      context.stroke();
-      this.#drawFogLikeWeather(
-        Math.floor(count * 0.28),
-        delta,
-        "rgb(190 126 47 / 9%)",
-        1.35,
-      );
-      return;
-    }
-
-    context.strokeStyle =
-      state.weather === "storm"
-        ? "rgb(180 213 230 / 62%)"
-        : "rgb(190 225 239 / 48%)";
-    context.lineWidth = scale;
-    context.beginPath();
-    for (let index = 0; index < count; index += 1) {
-      const particle = this.#particles[index]!;
-      particle.y +=
-        particle.speed * delta * (state.weather === "storm" ? 1.5 : 1);
-      particle.x += particle.drift * delta;
-      if (particle.y > 1.08) {
-        particle.y = -0.08;
-        particle.x = this.#nextParticleSpawnX();
-      }
-      if (particle.x < -0.05) particle.x = 1.05;
-      const x = particle.x * width;
-      const y = particle.y * height;
-      context.moveTo(x, y);
-      context.lineTo(
-        x + particle.drift * particle.length * scale * 2,
-        y + particle.length * scale,
-      );
-    }
-    context.stroke();
+  #drawWeather(): void {
+    this.#context.clearRect(0, 0, this.#canvas.width, this.#canvas.height);
   }
 }

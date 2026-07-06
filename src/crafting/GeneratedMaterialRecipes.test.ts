@@ -77,7 +77,9 @@ describe("generated material recipes", () => {
       expect.arrayContaining([
         expect.objectContaining({
           generatedRecipeKind: "tool_upgrade",
+          requiredWorkbench: "assembler",
           workbenchType: "assembler",
+          requiredMaterialCapabilities: { toolGrade: 62 },
           inputs: [
             { itemId: "tool:pickaxe", count: 1 },
             { itemId: itemIdForMaterial(material.id), count: 1 },
@@ -114,7 +116,9 @@ describe("generated material recipes", () => {
       expect.arrayContaining([
         expect.objectContaining({
           generatedRecipeKind: "stabilized_block",
+          requiredWorkbench: "crystal",
           workbenchType: "crystal",
+          requiredMaterialCapabilities: { buildingGrade: 62 },
           outputs: [{ itemId: itemIdForMaterial(material.id), count: 1 }],
         }),
       ]),
@@ -137,7 +141,9 @@ describe("generated material recipes", () => {
       expect.arrayContaining([
         expect.objectContaining({
           generatedRecipeKind: "magic_core",
+          requiredWorkbench: "magic",
           workbenchType: "magic",
+          requiredMaterialCapabilities: { magicFocusGrade: 68 },
           outputs: [
             { itemId: GENERATED_MATERIAL_RECIPE_OUTPUTS.magicCore, count: 1 },
           ],
@@ -163,7 +169,9 @@ describe("generated material recipes", () => {
       expect.arrayContaining([
         expect.objectContaining({
           generatedRecipeKind: "fuel_cell",
+          requiredWorkbench: "chemical",
           workbenchType: "chemical",
+          requiredMaterialCapabilities: { fuelGrade: 68 },
           outputs: [
             { itemId: GENERATED_MATERIAL_RECIPE_OUTPUTS.fuelCell, count: 1 },
           ],
@@ -189,7 +197,9 @@ describe("generated material recipes", () => {
       expect.arrayContaining([
         expect.objectContaining({
           generatedRecipeKind: "explosive_compound",
+          requiredWorkbench: "chemical",
           workbenchType: "chemical",
+          requiredMaterialCapabilities: { explosiveGrade: 70 },
           outputs: [
             {
               itemId: GENERATED_MATERIAL_RECIPE_OUTPUTS.explosiveCompound,
@@ -218,7 +228,9 @@ describe("generated material recipes", () => {
       expect.arrayContaining([
         expect.objectContaining({
           generatedRecipeKind: "circuit",
+          requiredWorkbench: "metal",
           workbenchType: "metal",
+          requiredMaterialCapabilities: { conductorGrade: 68 },
           outputs: [
             { itemId: GENERATED_MATERIAL_RECIPE_OUTPUTS.circuit, count: 1 },
           ],

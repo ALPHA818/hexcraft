@@ -25,7 +25,11 @@ import {
   UNKNOWN_MATERIAL_VISUALS,
   type MaterialVisuals,
 } from "../materials/MaterialVisuals.ts";
-import type { MaterialDefinition } from "../materials/MaterialTypes.ts";
+import {
+  MATERIAL_STAT_KEYS,
+  type MaterialDefinition,
+  type MaterialRarity,
+} from "../materials/MaterialTypes.ts";
 import type { SerializedInventory } from "../save/WorldSaveTypes.ts";
 import { minedDrop as registryMinedDrop } from "../world/blocks.ts";
 import type { GameMode } from "./gameMode.ts";
@@ -50,8 +54,60 @@ export type InventorySlotInteractionOptions = Readonly<{
   button?: 0 | 2;
   shiftKey?: boolean;
 }>;
+export type InventoryFilter =
+  | "all"
+  | "blocks"
+  | "tools"
+  | "materials"
+  | "generated-materials"
+  | "workbenches";
+export type InventorySortMode =
+  "manual" | "name" | "count" | "type" | "rarity" | "generation";
+export type InventoryVisibleStack = Readonly<{
+  index: number;
+  stack: ItemStack;
+  item: ItemDefinition;
+}>;
 
 export const BACKPACK_SLOT_COUNT = 27;
+
+export const INVENTORY_FILTERS = [
+  { id: "all", label: "All" },
+  { id: "blocks", label: "Blocks" },
+  { id: "tools", label: "Tools" },
+  { id: "materials", label: "Materials" },
+  { id: "generated-materials", label: "Generated Materials" },
+  { id: "workbenches", label: "Workbenches" },
+] as const satisfies readonly { id: InventoryFilter; label: string }[];
+
+export const INVENTORY_SORT_OPTIONS = [
+  { id: "manual", label: "Manual" },
+  { id: "name", label: "Name" },
+  { id: "count", label: "Count" },
+  { id: "type", label: "Type" },
+  { id: "rarity", label: "Rarity" },
+  { id: "generation", label: "Generation" },
+] as const satisfies readonly { id: InventorySortMode; label: string }[];
+
+type InventorySlotRenderEntry = Readonly<{
+  index: number;
+  stack: InventorySlot;
+}>;
+
+const INVENTORY_FILTER_IDS = new Set<InventoryFilter>(
+  INVENTORY_FILTERS.map((filter) => filter.id),
+);
+const INVENTORY_SORT_IDS = new Set<InventorySortMode>(
+  INVENTORY_SORT_OPTIONS.map((sort) => sort.id),
+);
+const RARITY_SORT_RANK: ReadonlyMap<MaterialRarity, number> = new Map([
+  ["common", 0],
+  ["uncommon", 1],
+  ["rare", 2],
+  ["epic", 3],
+  ["legendary", 4],
+  ["mythic", 5],
+]);
 
 export function minedDrop(material: TerrainMaterial): TerrainMaterial | null {
   const drop = registryMinedDrop(material);
@@ -86,6 +142,194 @@ function createStartingBackpack(): InventorySlot[] {
 
 function safeItemClass(itemId: string): string {
   return `item-${itemId.replace(/[^a-z0-9_-]/gi, "-")}`;
+}
+
+function normalizedText(text: string): string {
+  return text.trim().toLowerCase();
+}
+
+function validInventoryFilter(filter: InventoryFilter): InventoryFilter {
+  return INVENTORY_FILTER_IDS.has(filter) ? filter : "all";
+}
+
+function validInventorySortMode(
+  sortMode: InventorySortMode,
+): InventorySortMode {
+  return INVENTORY_SORT_IDS.has(sortMode) ? sortMode : "manual";
+}
+
+function materialForInventoryItem(
+  item: ItemDefinition,
+): MaterialDefinition | null {
+  if (item.kind === "generated_material") {
+    return item.material;
+  }
+  if (item.kind === "tool" && "material" in item) {
+    return item.material;
+  }
+
+  return null;
+}
+
+export function isWorkbenchInventoryItem(item: ItemDefinition): boolean {
+  return (
+    item.kind === "block" &&
+    (item.block.id === "element_combiner" ||
+      item.block.id.endsWith("_workbench") ||
+      item.block.id.endsWith("_station"))
+  );
+}
+
+export function inventoryItemMatchesFilter(
+  item: ItemDefinition,
+  filter: InventoryFilter,
+): boolean {
+  switch (filter) {
+    case "all":
+      return true;
+    case "blocks":
+      return item.kind === "block";
+    case "tools":
+      return item.kind === "tool";
+    case "materials":
+      return item.kind === "material";
+    case "generated-materials":
+      return item.kind === "generated_material";
+    case "workbenches":
+      return isWorkbenchInventoryItem(item);
+  }
+}
+
+export function inventoryItemSearchText(item: ItemDefinition): string {
+  const parts = [
+    item.id,
+    item.displayName,
+    item.shortName,
+    item.kind,
+    item.placeable ? "placeable" : "",
+  ];
+
+  if (item.kind === "block") {
+    parts.push(item.block.id, item.block.displayName, String(item.material));
+  }
+
+  const material = materialForInventoryItem(item);
+  if (material) {
+    parts.push(
+      material.id,
+      material.name,
+      material.rarity,
+      `generation:${material.generation}`,
+      `gen:${material.generation}`,
+      ...material.parents,
+      ...material.tags,
+    );
+    for (const stat of MATERIAL_STAT_KEYS) {
+      parts.push(`${stat}:${material[stat]}`);
+      if (material[stat] > 0) {
+        parts.push(stat);
+      }
+    }
+  } else if (item.kind === "generated_material") {
+    parts.push(item.materialId);
+  }
+
+  return parts.filter(Boolean).join(" ").toLowerCase();
+}
+
+export function inventoryItemMatchesSearch(
+  item: ItemDefinition,
+  query: string,
+): boolean {
+  const normalizedQuery = normalizedText(query);
+
+  return (
+    normalizedQuery === "" ||
+    inventoryItemSearchText(item).includes(normalizedQuery)
+  );
+}
+
+function itemCategoryRank(item: ItemDefinition | null): number {
+  if (!item) {
+    return 6;
+  }
+  if (isWorkbenchInventoryItem(item)) {
+    return 4;
+  }
+
+  switch (item.kind) {
+    case "block":
+      return 0;
+    case "tool":
+      return 1;
+    case "material":
+      return 2;
+    case "generated_material":
+      return 3;
+  }
+}
+
+function materialRaritySortValue(item: ItemDefinition | null): number {
+  const material = item ? materialForInventoryItem(item) : null;
+
+  return material ? (RARITY_SORT_RANK.get(material.rarity) ?? -1) : -1;
+}
+
+function materialGenerationSortValue(item: ItemDefinition | null): number {
+  const material = item ? materialForInventoryItem(item) : null;
+
+  return material?.generation ?? -1;
+}
+
+function itemNameSortValue(
+  item: ItemDefinition | null,
+  stack: ItemStack,
+): string {
+  return normalizedText(item?.displayName ?? stack.itemId);
+}
+
+function compareStrings(first: string, second: string): number {
+  return first.localeCompare(second, undefined, {
+    numeric: true,
+    sensitivity: "base",
+  });
+}
+
+function compareInventoryStacks(
+  first: ItemStack,
+  second: ItemStack,
+  sortMode: InventorySortMode,
+  itemDefinitionForStack: (itemId: string) => ItemDefinition | null,
+): number {
+  const firstItem = itemDefinitionForStack(first.itemId);
+  const secondItem = itemDefinitionForStack(second.itemId);
+  const firstName = itemNameSortValue(firstItem, first);
+  const secondName = itemNameSortValue(secondItem, second);
+  const nameTieBreak = compareStrings(firstName, secondName);
+
+  switch (sortMode) {
+    case "manual":
+      return 0;
+    case "name":
+      return nameTieBreak || compareStrings(first.itemId, second.itemId);
+    case "count":
+      return second.count - first.count || nameTieBreak;
+    case "type":
+      return (
+        itemCategoryRank(firstItem) - itemCategoryRank(secondItem) ||
+        nameTieBreak
+      );
+    case "rarity":
+      return (
+        materialRaritySortValue(secondItem) -
+          materialRaritySortValue(firstItem) || nameTieBreak
+      );
+    case "generation":
+      return (
+        materialGenerationSortValue(secondItem) -
+          materialGenerationSortValue(firstItem) || nameTieBreak
+      );
+  }
 }
 
 export function inventoryVisualsForItem(
@@ -152,6 +396,9 @@ export class Inventory {
     stack: ItemStack;
     origin: InventorySlotAddress | null;
   } | null = null;
+  #backpackFilter: InventoryFilter = "all";
+  #backpackSearch = "";
+  #backpackSortMode: InventorySortMode = "manual";
   #grantSlotIndex = 0;
   #isOpen = false;
   #isActive = true;
@@ -205,6 +452,10 @@ export class Inventory {
     return this.#isCreative;
   }
 
+  isOpen(): boolean {
+    return this.#isOpen;
+  }
+
   creativeCatalogItems(): readonly InventoryItem[] {
     return this.#isCreative ? ITEM_DEFINITIONS : [];
   }
@@ -241,6 +492,10 @@ export class Inventory {
     const stack = this.selectedStack();
 
     return stack ? this.#itemDefinitionFor(stack.itemId) : null;
+  }
+
+  selectedStackCount(): number {
+    return this.selectedStack()?.count ?? 0;
   }
 
   selectedItemId(): ItemId | null {
@@ -299,6 +554,50 @@ export class Inventory {
 
   heldStack(): ItemStack | null {
     return this.#heldStack?.stack ?? null;
+  }
+
+  visibleBackpackStacks(): readonly InventoryVisibleStack[] {
+    return this.#visibleBackpackStacks();
+  }
+
+  setBackpackFilter(filter: InventoryFilter): void {
+    this.#backpackFilter = validInventoryFilter(filter);
+    this.render();
+  }
+
+  setBackpackSearch(query: string): void {
+    this.#backpackSearch = query;
+    this.render();
+  }
+
+  setBackpackSortMode(sortMode: InventorySortMode): void {
+    this.#backpackSortMode = validInventorySortMode(sortMode);
+    this.render();
+  }
+
+  sortBackpack(sortMode: InventorySortMode = this.#backpackSortMode): boolean {
+    const validSortMode = validInventorySortMode(sortMode);
+
+    if (validSortMode === "manual" || this.#heldStack) {
+      return false;
+    }
+
+    const occupiedSlots = this.#backpackSlots.filter(
+      (stack): stack is ItemStack => stack !== null,
+    );
+
+    occupiedSlots.sort((first, second) =>
+      compareInventoryStacks(first, second, validSortMode, (itemId) =>
+        this.#itemDefinitionFor(itemId),
+      ),
+    );
+    this.#backpackSortMode = validSortMode;
+    this.#backpackSlots = [
+      ...occupiedSlots,
+      ...createEmptySlots(BACKPACK_SLOT_COUNT - occupiedSlots.length),
+    ];
+    this.render();
+    return occupiedSlots.length > 1;
   }
 
   setSlot(index: number, stack: ItemStack | null): void {
@@ -486,6 +785,57 @@ export class Inventory {
     return true;
   }
 
+  consumeSelectedStack(amount = 1): boolean {
+    if (this.#isCreative) {
+      return true;
+    }
+
+    const normalizedAmount = Math.max(0, Math.floor(amount));
+    if (normalizedAmount === 0) {
+      return true;
+    }
+
+    const stack = this.selectedStack();
+    if (!stack || stack.count < normalizedAmount) {
+      return false;
+    }
+
+    this.#hotbarSlots[this.#selectedHotbarIndex] =
+      stack.count > normalizedAmount
+        ? {
+            ...stack,
+            count: stack.count - normalizedAmount,
+          }
+        : null;
+    this.render();
+    return true;
+  }
+
+  restoreSelectedStackItem(itemId: ItemId, amount = 1): boolean {
+    const normalizedAmount = Math.max(0, Math.floor(amount));
+
+    if (normalizedAmount === 0) {
+      return true;
+    }
+
+    const stack = this.#createItemStack(itemId, normalizedAmount);
+    const selectedSlot: InventorySlotAddress = {
+      container: "hotbar",
+      index: this.#selectedHotbarIndex,
+    };
+    let remainder = this.#insertStackIntoSlot(selectedSlot, stack);
+
+    if (remainder) {
+      remainder = this.#insertStackIntoContainers(
+        this.#slotContainers(),
+        remainder,
+      );
+    }
+
+    this.render();
+    return remainder === null;
+  }
+
   storeGeneratedMaterialItem(itemId: ItemId, amount = 1): boolean {
     if (!this.#materialStorage) {
       return false;
@@ -566,10 +916,6 @@ export class Inventory {
     this.#isOpen = true;
     this.#panel.hidden = false;
     document.body.classList.add("inventory-open");
-
-    if (document.pointerLockElement) {
-      document.exitPointerLock();
-    }
     this.#onOpenChange(true);
   }
 
@@ -606,6 +952,7 @@ export class Inventory {
 
     this.#inventoryCounts.replaceChildren(
       this.#createInventoryContainer("Hotbar", this.#hotbarSlots, "hotbar"),
+      this.#createBackpackControls(),
       this.#createInventoryContainer(
         "Backpack",
         this.#backpackSlots,
@@ -633,6 +980,26 @@ export class Inventory {
     return String(stack.count);
   }
 
+  #toolDurabilityPercent(stack: ItemStack | null): number | null {
+    if (!stack) {
+      return null;
+    }
+
+    const item = this.#itemDefinitionFor(stack.itemId);
+
+    if (item?.kind !== "tool") {
+      return null;
+    }
+
+    return Math.max(
+      0,
+      Math.min(
+        100,
+        ((stack.durability ?? item.maxDurability) / item.maxDurability) * 100,
+      ),
+    );
+  }
+
   #itemDefinitionFor(itemId: string): ItemDefinition | null {
     return itemDefinitionFor(itemId, this.#materialItemResolver);
   }
@@ -644,11 +1011,17 @@ export class Inventory {
     this.#applySlotClasses(slot, item, "hotbar-slot");
     slot.classList.toggle("selected", index === this.#selectedHotbarIndex);
     slot.type = "button";
+    slot.setAttribute("aria-label", item?.displayName ?? "Empty hotbar slot");
+    slot.setAttribute(
+      "aria-pressed",
+      index === this.#selectedHotbarIndex ? "true" : "false",
+    );
     slot.append(
       this.#textElement("span", "slot-key", String(index + 1)),
       createItemSwatch(),
       this.#textElement("span", "slot-name", item?.shortName ?? "Empty"),
       this.#textElement("strong", "", this.#stackCountLabel(stack)),
+      this.#createDurabilityBar(stack),
     );
     slot.title = item?.displayName ?? "Empty slot";
     slot.addEventListener("click", () => this.select(index));
@@ -663,17 +1036,137 @@ export class Inventory {
     const section = document.createElement("section");
     const heading = document.createElement("h3");
     const grid = document.createElement("div");
+    const entries = this.#slotRenderEntries(slots, container);
 
     section.className = `inventory-container inventory-container-${container}`;
     heading.textContent = label;
     grid.className = "inventory-slot-grid";
     grid.replaceChildren(
-      ...slots.map((stack, index) =>
+      ...entries.map(({ stack, index }) =>
         this.#createInventorySlot(stack, index, container),
       ),
     );
     section.append(heading, grid);
+    if (
+      container === "backpack" &&
+      entries.length === 0 &&
+      this.#hasActiveBackpackViewFilter()
+    ) {
+      section.append(
+        this.#textElement(
+          "p",
+          "inventory-empty-filter",
+          "No matching backpack items.",
+        ),
+      );
+    }
     return section;
+  }
+
+  #createBackpackControls(): HTMLElement {
+    const section = document.createElement("section");
+    const tabs = document.createElement("div");
+    const search = document.createElement("input");
+    const sortRow = document.createElement("div");
+    const sortSelect = document.createElement("select");
+    const sortButton = document.createElement("button");
+
+    section.className = "inventory-backpack-controls";
+    tabs.className = "inventory-filter-tabs";
+    tabs.replaceChildren(
+      ...INVENTORY_FILTERS.map((filter) => {
+        const button = document.createElement("button");
+
+        button.type = "button";
+        button.className = "inventory-filter-tab";
+        button.classList.toggle("selected", filter.id === this.#backpackFilter);
+        button.textContent = filter.label;
+        button.addEventListener("click", () =>
+          this.setBackpackFilter(filter.id),
+        );
+        return button;
+      }),
+    );
+
+    search.className = "inventory-backpack-search";
+    search.type = "search";
+    search.placeholder = "Search items";
+    search.value = this.#backpackSearch;
+    search.addEventListener("input", (event) => {
+      this.setBackpackSearch((event.currentTarget as HTMLInputElement).value);
+    });
+
+    sortRow.className = "inventory-sort-row";
+    sortSelect.className = "inventory-sort-select";
+    sortSelect.value = this.#backpackSortMode;
+    sortSelect.replaceChildren(
+      ...INVENTORY_SORT_OPTIONS.map((sort) => {
+        const option = document.createElement("option");
+
+        option.value = sort.id;
+        option.textContent = sort.label;
+        option.selected = sort.id === this.#backpackSortMode;
+        return option;
+      }),
+    );
+    sortSelect.addEventListener("change", (event) => {
+      this.setBackpackSortMode(
+        (event.currentTarget as HTMLSelectElement).value as InventorySortMode,
+      );
+    });
+
+    sortButton.type = "button";
+    sortButton.className = "inventory-sort-button";
+    sortButton.textContent = "Sort Backpack";
+    sortButton.disabled = this.#backpackSortMode === "manual";
+    sortButton.addEventListener("click", () => {
+      this.sortBackpack();
+    });
+
+    sortRow.append(sortSelect, sortButton);
+    section.append(tabs, search, sortRow);
+    return section;
+  }
+
+  #slotRenderEntries(
+    slots: readonly InventorySlot[],
+    container: "hotbar" | "backpack",
+  ): readonly InventorySlotRenderEntry[] {
+    if (container === "hotbar" || !this.#hasActiveBackpackViewFilter()) {
+      return slots.map((stack, index) => ({ index, stack }));
+    }
+
+    return this.#visibleBackpackStacks().map(({ index, stack }) => ({
+      index,
+      stack,
+    }));
+  }
+
+  #hasActiveBackpackViewFilter(): boolean {
+    return (
+      this.#backpackFilter !== "all" ||
+      normalizedText(this.#backpackSearch) !== ""
+    );
+  }
+
+  #visibleBackpackStacks(): readonly InventoryVisibleStack[] {
+    return this.#backpackSlots.flatMap((stack, index) => {
+      if (!stack) {
+        return [];
+      }
+
+      const item = this.#itemDefinitionFor(stack.itemId);
+
+      if (
+        !item ||
+        !inventoryItemMatchesFilter(item, this.#backpackFilter) ||
+        !inventoryItemMatchesSearch(item, this.#backpackSearch)
+      ) {
+        return [];
+      }
+
+      return [{ index, stack, item }];
+    });
   }
 
   #createInventorySlot(
@@ -697,14 +1190,32 @@ export class Inventory {
         this.#selectedPanelSlot.index === index,
     );
     slot.title = item?.displayName ?? "Empty slot";
+    slot.setAttribute(
+      "aria-label",
+      item
+        ? `${item.displayName}, ${this.#stackCountLabel(stack) || "1"}`
+        : `Empty ${container} slot ${index + 1}`,
+    );
+    slot.tabIndex = 0;
     details.className = "inventory-slot-details";
-    details.append(name, count);
+    details.append(name, count, this.#createDurabilityBar(stack));
     slot.append(
       this.#textElement("span", "slot-key", slotLabel),
       createItemSwatch(),
       details,
     );
     slot.addEventListener("click", (event) => {
+      this.interactWithSlot(container, index, {
+        button: 0,
+        shiftKey: event.shiftKey,
+      });
+    });
+    slot.addEventListener("keydown", (event) => {
+      if (event.code !== "Enter" && event.code !== "Space") {
+        return;
+      }
+
+      event.preventDefault();
       this.interactWithSlot(container, index, {
         button: 0,
         shiftKey: event.shiftKey,
@@ -718,6 +1229,22 @@ export class Inventory {
       });
     });
     return slot;
+  }
+
+  #createDurabilityBar(stack: ItemStack | null): HTMLElement {
+    const durability = document.createElement("span");
+    const fill = document.createElement("span");
+    const percent = this.#toolDurabilityPercent(stack);
+
+    durability.className = "tool-durability";
+    fill.className = "tool-durability-fill";
+    durability.hidden = percent === null;
+    if (percent !== null) {
+      durability.title = `Durability ${Math.round(percent)}%`;
+      durability.style.setProperty("--durability", `${percent}%`);
+    }
+    durability.append(fill);
+    return durability;
   }
 
   #applySlotClasses(

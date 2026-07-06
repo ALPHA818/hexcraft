@@ -7,19 +7,29 @@ import {
   generatedMaterialRecipesForMaterials,
   type GeneratedMaterialRecipe,
 } from "../crafting/GeneratedMaterialRecipes.ts";
-import { RECIPE_REGISTRY } from "../crafting/RecipeRegistry.ts";
+import {
+  RECIPE_REGISTRY,
+  recipeRequiredWorkbench,
+} from "../crafting/RecipeRegistry.ts";
 import type { Recipe } from "../crafting/RecipeTypes.ts";
 import type { WorkbenchType } from "../crafting/WorkbenchTypes.ts";
 import {
   itemDefinitionFor,
   itemIdForMaterial,
+  materialIdFromItemId,
   type ItemDefinition,
+  type ItemId,
 } from "../items/ItemRegistry.ts";
 import {
   MODIFIABLE_BASE_TOOL_IDS,
   type ModifiableBaseToolItemId,
 } from "../items/ModifiedToolTypes.ts";
 import type { MaterialItemResolver } from "../items/MaterialItemResolver.ts";
+import {
+  classifyMaterialCapabilities,
+  type MaterialCapabilities,
+} from "../materials/MaterialCapabilities.ts";
+import { materialResearchRequirementMessage } from "../materials/MaterialResearch.ts";
 import type { MaterialDefinition } from "../materials/MaterialTypes.ts";
 import type { MaterialWorldController } from "./MaterialWorldController.ts";
 
@@ -36,6 +46,8 @@ export type WorkbenchControllerOptions = Readonly<{
 export type WorkbenchCraftFailureReason =
   | "missing_recipe"
   | "wrong_workbench"
+  | "research_locked"
+  | "missing_capability"
   | "missing_ingredients"
   | "output_blocked";
 
@@ -87,6 +99,43 @@ function baseToolIdsAvailableToInventory(
   );
 }
 
+function generatedMaterialIdForRecipe(recipe: Recipe): string | null {
+  if ("generatedMaterialId" in recipe) {
+    return typeof recipe.generatedMaterialId === "string"
+      ? recipe.generatedMaterialId
+      : null;
+  }
+
+  if (recipe.type !== "shapeless") {
+    return null;
+  }
+
+  for (const input of recipe.inputs) {
+    const materialId = materialIdFromItemId(input.itemId);
+
+    if (materialId) {
+      return materialId;
+    }
+  }
+
+  return null;
+}
+
+function materialMeetsRecipeCapabilities(
+  material: MaterialDefinition,
+  requirements: NonNullable<Recipe["requiredMaterialCapabilities"]>,
+): boolean {
+  const capabilities = classifyMaterialCapabilities(material);
+
+  return Object.entries(requirements).every(([key, minimum]) => {
+    if (typeof minimum !== "number") {
+      return true;
+    }
+
+    return capabilities[key as keyof MaterialCapabilities] >= minimum;
+  });
+}
+
 export class WorkbenchController implements MaterialItemResolver {
   readonly #inventory: WorkbenchInventory;
   readonly #materialWorld: MaterialWorldController;
@@ -117,7 +166,9 @@ export class WorkbenchController implements MaterialItemResolver {
   }
 
   recipesForWorkbench(workbenchType: WorkbenchType): readonly Recipe[] {
-    return this.#crafting.recipesForWorkbench(workbenchType);
+    return this.#crafting
+      .recipesForWorkbench(workbenchType)
+      .filter((recipe) => this.#recipeGateAllows(recipe));
   }
 
   recipeById(recipeId: string): Recipe | null {
@@ -125,7 +176,11 @@ export class WorkbenchController implements MaterialItemResolver {
   }
 
   canCraft(recipe: Recipe): boolean {
-    return this.#crafting.canCraft(recipe);
+    return this.#recipeGateAllows(recipe) && this.#crafting.canCraft(recipe);
+  }
+
+  countItem(itemId: ItemId): number {
+    return this.#inventory.countItem(itemId);
   }
 
   craft(recipeId: string, workbenchType: WorkbenchType): WorkbenchCraftResult {
@@ -140,12 +195,32 @@ export class WorkbenchController implements MaterialItemResolver {
       };
     }
 
-    if (recipe.workbenchType !== workbenchType) {
+    if (recipeRequiredWorkbench(recipe) !== workbenchType) {
       return {
         ok: false,
         reason: "wrong_workbench",
         recipe,
         message: `${recipe.displayName} requires a different workbench.`,
+      };
+    }
+
+    if (!this.#recipeResearchAllows(recipe)) {
+      return {
+        ok: false,
+        reason: "research_locked",
+        recipe,
+        message: recipe.requiredResearchTier
+          ? materialResearchRequirementMessage(recipe.requiredResearchTier)
+          : "Research required.",
+      };
+    }
+
+    if (!this.#recipeCapabilitiesAllow(recipe)) {
+      return {
+        ok: false,
+        reason: "missing_capability",
+        recipe,
+        message: "Material capability requirements are not met.",
       };
     }
 
@@ -183,6 +258,36 @@ export class WorkbenchController implements MaterialItemResolver {
 
   openElementCombiner(): void {
     this.#openElementCombiner();
+  }
+
+  #recipeGateAllows(recipe: Recipe): boolean {
+    return (
+      this.#recipeResearchAllows(recipe) &&
+      this.#recipeCapabilitiesAllow(recipe)
+    );
+  }
+
+  #recipeResearchAllows(recipe: Recipe): boolean {
+    return recipe.requiredResearchTier
+      ? this.#materialWorld.canUseResearchTier(recipe.requiredResearchTier)
+      : true;
+  }
+
+  #recipeCapabilitiesAllow(recipe: Recipe): boolean {
+    const requirements = recipe.requiredMaterialCapabilities;
+
+    if (!requirements) {
+      return true;
+    }
+
+    const materialId = generatedMaterialIdForRecipe(recipe);
+    const material = materialId
+      ? this.#materialWorld.getMaterialById(materialId)
+      : null;
+
+    return material
+      ? materialMeetsRecipeCapabilities(material, requirements)
+      : false;
   }
 
   #craftingInventory(): CraftingInventory {

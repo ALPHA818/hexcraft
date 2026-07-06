@@ -2,9 +2,20 @@ import type { MeshData } from "../geometry/hexPrism.ts";
 import type { Atmosphere } from "../environment/Atmosphere.ts";
 import type { FirstPersonCamera } from "../input/FirstPersonCamera.ts";
 import { DEVICE_PROFILE } from "../platform/deviceProfile.ts";
+import {
+  rendererAtmosphereSnapshotFromState,
+  weatherParticleVertexFloatCount,
+  WEATHER_PARTICLE_FLOATS_PER_VERTEX,
+  writeWeatherParticleVertices,
+  type RendererAtmosphereSnapshot,
+} from "./AtmosphereRenderData.ts";
 import { createBlockTextureAtlas } from "./blockTextureAtlas.ts";
 import { identity, multiply, perspective } from "../math/mat4.ts";
-import { hexPrismShader, shadowShader } from "./hexPrism.wgsl.ts";
+import {
+  atmosphereParticleShader,
+  hexPrismShader,
+  shadowShader,
+} from "./hexPrism.wgsl.ts";
 import { lightViewProjection } from "./lighting.ts";
 
 const FLOAT_SIZE = Float32Array.BYTES_PER_ELEMENT;
@@ -28,6 +39,7 @@ export class WebGpuRenderer {
   readonly #device: GPUDevice;
   readonly #pipeline: GPURenderPipeline;
   readonly #transparentPipeline: GPURenderPipeline;
+  readonly #particlePipeline: GPURenderPipeline;
   readonly #shadowPipeline: GPURenderPipeline;
   readonly #shadowTexture: GPUTexture;
   readonly #shadowBindGroup: GPUBindGroup;
@@ -46,6 +58,10 @@ export class WebGpuRenderer {
   #vertexBufferCapacity: number;
   #entityVertexBuffer: GPUBuffer;
   #entityVertexBufferCapacity: number;
+  #particleVertexBuffer: GPUBuffer;
+  #particleVertexBufferCapacity = 4;
+  #particleVertexData = new Float32Array(0);
+  #particleVertexCount = 0;
   #opaqueVertexCount: number;
   #translucentVertexCount: number;
   #entityVertexCount = 0;
@@ -77,6 +93,11 @@ export class WebGpuRenderer {
     this.#entityVertexBuffer = device.createBuffer({
       label: "Entity vertex buffer",
       size: this.#entityVertexBufferCapacity,
+      usage: BUFFER_USAGE_VERTEX | BUFFER_USAGE_COPY_DST,
+    });
+    this.#particleVertexBuffer = device.createBuffer({
+      label: "World atmosphere particle vertex buffer",
+      size: this.#particleVertexBufferCapacity,
       usage: BUFFER_USAGE_VERTEX | BUFFER_USAGE_COPY_DST,
     });
 
@@ -174,6 +195,10 @@ export class WebGpuRenderer {
     const shadowModule = device.createShaderModule({
       label: "Shadow map shader",
       code: shadowShader,
+    });
+    const particleModule = device.createShaderModule({
+      label: "World atmosphere particle shader",
+      code: atmosphereParticleShader,
     });
     const shadowBindGroupLayout = device.createBindGroupLayout({
       label: "Shadow bind group layout",
@@ -346,6 +371,65 @@ export class WebGpuRenderer {
         depthCompare: "less",
       },
     });
+
+    this.#particlePipeline = device.createRenderPipeline({
+      label: "World atmosphere particle pipeline",
+      layout: device.createPipelineLayout({
+        bindGroupLayouts: [bindGroupLayout],
+      }),
+      vertex: {
+        module: particleModule,
+        entryPoint: "atmosphere_particle_vertex",
+        buffers: [
+          {
+            arrayStride: WEATHER_PARTICLE_FLOATS_PER_VERTEX * FLOAT_SIZE,
+            attributes: [
+              {
+                shaderLocation: 0,
+                offset: 0,
+                format: "float32x3",
+              },
+              {
+                shaderLocation: 1,
+                offset: 3 * FLOAT_SIZE,
+                format: "float32x4",
+              },
+            ],
+          },
+        ],
+      },
+      fragment: {
+        module: particleModule,
+        entryPoint: "atmosphere_particle_fragment",
+        targets: [
+          {
+            format,
+            blend: {
+              color: {
+                srcFactor: "src-alpha",
+                dstFactor: "one-minus-src-alpha",
+                operation: "add",
+              },
+              alpha: {
+                srcFactor: "one",
+                dstFactor: "one-minus-src-alpha",
+                operation: "add",
+              },
+            },
+          },
+        ],
+      },
+      primitive: {
+        topology: "triangle-list",
+        frontFace: "ccw",
+        cullMode: "none",
+      },
+      depthStencil: {
+        format: DEPTH_FORMAT,
+        depthWriteEnabled: false,
+        depthCompare: "less-equal",
+      },
+    });
   }
 
   static async create(
@@ -409,9 +493,11 @@ export class WebGpuRenderer {
       this.#lastFrameTime = time;
       this.#animationSeconds += Math.min(deltaSeconds, 0.1);
       camera.update(deltaSeconds);
-      atmosphere.update(deltaSeconds);
       onFrame(deltaSeconds);
-      this.#render(camera, atmosphere);
+      this.#render(
+        camera,
+        rendererAtmosphereSnapshotFromState(atmosphere.state()),
+      );
       this.#animationFrame = requestAnimationFrame(renderFrame);
     };
 
@@ -462,6 +548,58 @@ export class WebGpuRenderer {
     this.#entityVertexCount = mesh.opaqueVertexCount ?? mesh.vertexCount;
   }
 
+  #updateAtmosphereParticleMesh(
+    atmosphere: RendererAtmosphereSnapshot,
+    cameraDirection: readonly [number, number, number],
+  ): void {
+    const requiredFloats = weatherParticleVertexFloatCount(
+      atmosphere.weatherParticles.length,
+    );
+
+    if (requiredFloats === 0) {
+      this.#particleVertexCount = 0;
+      return;
+    }
+
+    if (this.#particleVertexData.length < requiredFloats) {
+      this.#particleVertexData = new Float32Array(requiredFloats);
+    }
+
+    this.#particleVertexCount = writeWeatherParticleVertices(
+      this.#particleVertexData,
+      atmosphere,
+      cameraDirection,
+    );
+
+    if (this.#particleVertexCount === 0) {
+      return;
+    }
+
+    const requiredBytes =
+      this.#particleVertexCount *
+      WEATHER_PARTICLE_FLOATS_PER_VERTEX *
+      FLOAT_SIZE;
+
+    if (requiredBytes > this.#particleVertexBufferCapacity) {
+      this.#particleVertexBuffer.destroy();
+      this.#particleVertexBufferCapacity = requiredBytes;
+      this.#particleVertexBuffer = this.#device.createBuffer({
+        label: "World atmosphere particle vertex buffer",
+        size: this.#particleVertexBufferCapacity,
+        usage: BUFFER_USAGE_VERTEX | BUFFER_USAGE_COPY_DST,
+      });
+    }
+
+    this.#device.queue.writeBuffer(
+      this.#particleVertexBuffer,
+      0,
+      this.#particleVertexData.subarray(
+        0,
+        this.#particleVertexCount * WEATHER_PARTICLE_FLOATS_PER_VERTEX,
+      ),
+    );
+  }
+
   #resize(): void {
     const scale = Math.min(
       window.devicePixelRatio,
@@ -490,7 +628,10 @@ export class WebGpuRenderer {
     this.#depthHeight = height;
   }
 
-  #render(camera: FirstPersonCamera, atmosphere: Atmosphere): void {
+  #render(
+    camera: FirstPersonCamera,
+    environment: RendererAtmosphereSnapshot,
+  ): void {
     this.#resize();
 
     if (!this.#depthTexture) {
@@ -506,12 +647,12 @@ export class WebGpuRenderer {
       48,
     );
     const modelViewProjection = multiply(projection, multiply(view, model));
-    const environment = atmosphere.state();
     const lightMatrix = lightViewProjection(
       camera.position(),
       environment,
       false,
     );
+    this.#updateAtmosphereParticleMesh(environment, camera.direction());
 
     this.#uniformData.set(modelViewProjection, 0);
     this.#uniformData.set(model, 16);
@@ -585,6 +726,11 @@ export class WebGpuRenderer {
       pass.setPipeline(this.#transparentPipeline);
       pass.setVertexBuffer(0, this.#vertexBuffer);
       pass.draw(this.#translucentVertexCount, 1, this.#opaqueVertexCount);
+    }
+    if (this.#particleVertexCount > 0) {
+      pass.setPipeline(this.#particlePipeline);
+      pass.setVertexBuffer(0, this.#particleVertexBuffer);
+      pass.draw(this.#particleVertexCount);
     }
     pass.end();
 

@@ -1,10 +1,11 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
 import { getDefaultGameSettings } from "../game/GameSettings.ts";
 import {
   TERRAIN_DEPTH_BLOCKS,
   TerrainMaterial,
 } from "../geometry/terrainChunk.ts";
+import { itemIdForMaterial } from "../items/ItemRegistry.ts";
 import { DEFAULT_MATERIAL_CONFIG } from "../materials/MaterialConfig.ts";
 import { BASE_ELEMENT_COUNT } from "../materials/BaseElements.ts";
 import { combineMaterials } from "../materials/MaterialCombiner.ts";
@@ -169,6 +170,81 @@ describe("world save manager", () => {
     expect(loaded?.runtime.materialCodex.generatedMaterials).toEqual([]);
   });
 
+  it("migrates old hotbar-only saves with inventory.slots", async () => {
+    const database = new MemorySaveDatabase();
+    const manager = new WorldSaveManager(database);
+    const created = await manager.createWorld(getDefaultGameSettings(), 1000);
+
+    await database.putWorldRuntimeState({
+      worldId: created.metadata.id,
+      player: { position: null },
+      inventory: {
+        selectedIndex: 2,
+        slots: [
+          { itemId: "block:dirt", count: 4 },
+          { itemId: "tool:pickaxe", count: 1, durability: 37 },
+          { itemId: "block:wood", count: 3 },
+        ],
+      },
+      gameTime: created.runtime.gameTime,
+    } as unknown as WorldRuntimeStateSave);
+
+    const loaded = await manager.loadWorld(created.metadata.id);
+
+    expect(loaded?.runtime.inventory.selectedHotbarIndex).toBe(2);
+    expect(loaded?.runtime.inventory.hotbar).toHaveLength(9);
+    expect(loaded?.runtime.inventory.backpack).toHaveLength(27);
+    expect(loaded?.runtime.inventory.hotbar?.[0]).toEqual({
+      itemId: "block:dirt",
+      count: 4,
+    });
+    expect(loaded?.runtime.inventory.hotbar?.[1]).toEqual({
+      itemId: "tool:pickaxe",
+      count: 1,
+      durability: 37,
+    });
+    expect(loaded?.runtime.inventory.hotbar?.[2]).toEqual({
+      itemId: "block:wood",
+      count: 3,
+    });
+  });
+
+  it("migrates old terrain-material-count inventory saves", async () => {
+    const database = new MemorySaveDatabase();
+    const manager = new WorldSaveManager(database);
+    const created = await manager.createWorld(getDefaultGameSettings(), 1000);
+
+    await database.putWorldRuntimeState({
+      worldId: created.metadata.id,
+      player: { position: null },
+      inventory: {
+        selectedIndex: 1,
+        items: [
+          { material: TerrainMaterial.Dirt, count: 70 },
+          { material: TerrainMaterial.Planks, count: 5 },
+        ],
+      },
+      gameTime: created.runtime.gameTime,
+    } as unknown as WorldRuntimeStateSave);
+
+    const loaded = await manager.loadWorld(created.metadata.id);
+
+    expect(loaded?.runtime.inventory.selectedHotbarIndex).toBe(1);
+    expect(loaded?.runtime.inventory.hotbar?.[0]).toEqual({
+      itemId: "block:dirt",
+      count: 64,
+    });
+    expect(loaded?.runtime.inventory.hotbar?.[1]).toEqual({
+      itemId: "block:dirt",
+      count: 6,
+    });
+    expect(loaded?.runtime.inventory.hotbar?.[2]).toEqual({
+      itemId: "block:planks",
+      count: 5,
+    });
+    expect(loaded?.runtime.inventory.backpack).toHaveLength(27);
+  });
+
   it("saves and loads terrain edits grouped by chunk", async () => {
     const manager = createManager();
     const created = await manager.createWorld(getDefaultGameSettings(), 1000);
@@ -244,7 +320,7 @@ describe("world save manager", () => {
     );
   });
 
-  it("saves and loads dynamic material block metadata", async () => {
+  it("saves and loads stabilized dynamic material block metadata", async () => {
     const manager = createManager();
     const created = await manager.createWorld(getDefaultGameSettings(), 1000);
     const terrain = new InfiniteTerrain(created.metadata.seed, 4, 1);
@@ -277,16 +353,43 @@ describe("world save manager", () => {
     );
   });
 
-  it("serializes player position and inventory", async () => {
+  it("saves and loads workbench block terrain edits", async () => {
+    const manager = createManager();
+    const created = await manager.createWorld(getDefaultGameSettings(), 1000);
+    const terrain = new InfiniteTerrain(created.metadata.seed, 4, 1);
+    const position = { q: 2, r: -1, level: TERRAIN_DEPTH_BLOCKS + 12 };
+
+    terrain.update({ x: 0, z: 0 });
+    terrain.setBlock(position, TerrainMaterial.BasicWorkbench);
+
+    await manager.saveWorld({
+      metadata: created.metadata,
+      player: { position: null },
+      inventory: created.runtime.inventory,
+      terrainEditChunks: terrain.exportTerrainEditChunks(),
+    });
+
+    const loaded = await manager.loadWorld(created.metadata.id);
+    const regenerated = new InfiniteTerrain(created.metadata.seed, 4, 1);
+
+    regenerated.importTerrainEditChunks(loaded?.terrainEditChunks ?? []);
+
+    expect(regenerated.materialAt(position.q, position.r, position.level)).toBe(
+      TerrainMaterial.BasicWorkbench,
+    );
+  });
+
+  it("serializes player position and new inventory shape", async () => {
     const manager = createManager();
     const created = await manager.createWorld(getDefaultGameSettings(), 1000);
     const inventory: SerializedInventory = {
-      selectedIndex: 2,
-      slots: [
+      selectedHotbarIndex: 2,
+      hotbar: [
         { itemId: "block:dirt", count: 4 },
         { itemId: "tool:pickaxe", count: 1, durability: 47 },
         { itemId: "block:wood", count: 3 },
       ],
+      backpack: [{ itemId: "material:coal", count: 9 }],
     };
 
     await manager.saveWorld({
@@ -300,12 +403,128 @@ describe("world save manager", () => {
     const loaded = await manager.loadWorld(created.metadata.id);
 
     expect(loaded?.runtime.player.position).toEqual([4, 24, -8]);
-    expect(loaded?.runtime.inventory).toEqual(inventory);
+    expect(loaded?.runtime.inventory.selectedHotbarIndex).toBe(2);
+    expect(loaded?.runtime.inventory.hotbar).toHaveLength(9);
+    expect(loaded?.runtime.inventory.backpack).toHaveLength(27);
+    expect(loaded?.runtime.inventory.hotbar?.slice(0, 3)).toEqual([
+      { itemId: "block:dirt", count: 4 },
+      { itemId: "tool:pickaxe", count: 1, durability: 47 },
+      { itemId: "block:wood", count: 3 },
+    ]);
+    expect(loaded?.runtime.inventory.backpack?.[0]).toEqual({
+      itemId: "material:coal",
+      count: 9,
+    });
     expect(loaded?.runtime.gameTime).toEqual({
       timeOfDay: 0.73,
       dayNumber: 9,
       paused: true,
     });
+  });
+
+  it("saves and loads generated material items in backpack", async () => {
+    const manager = createManager();
+    const created = await manager.createWorld(getDefaultGameSettings(), 1000);
+    const registry = materialRegistry();
+    const copper = materialOrThrow(registry, "element:copper");
+    const tin = materialOrThrow(registry, "element:tin");
+    const result = combineMaterials(copper, tin, registry);
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) {
+      return;
+    }
+
+    const itemId = itemIdForMaterial(result.material.id);
+
+    await manager.saveWorld({
+      metadata: created.metadata,
+      player: { position: null },
+      inventory: {
+        selectedHotbarIndex: 0,
+        hotbar: [],
+        backpack: [{ itemId, count: 7 }],
+      },
+      materialCodex: serializeMaterialCodex(registry),
+      materialStorage: {
+        materials: [{ materialId: result.material.id, quantity: 2 }],
+      },
+      terrainEditChunks: [],
+    });
+
+    const loaded = await manager.loadWorld(created.metadata.id);
+
+    expect(loaded?.runtime.inventory.backpack?.[0]).toEqual({
+      itemId,
+      count: 7,
+    });
+    expect(loaded?.runtime.materialCodex.generatedMaterials).toEqual([
+      expect.objectContaining({
+        id: result.material.id,
+      }),
+    ]);
+    expect(loaded?.runtime.materialStorage.materials).toEqual([
+      { materialId: result.material.id, quantity: 2 },
+    ]);
+  });
+
+  it("saves and loads workbench block items", async () => {
+    const manager = createManager();
+    const created = await manager.createWorld(getDefaultGameSettings(), 1000);
+
+    await manager.saveWorld({
+      metadata: created.metadata,
+      player: { position: null },
+      inventory: {
+        selectedHotbarIndex: 3,
+        hotbar: [{ itemId: "block:basic_workbench", count: 1 }],
+        backpack: [{ itemId: "block:assembler_workbench", count: 2 }],
+      },
+      terrainEditChunks: [],
+    });
+
+    const loaded = await manager.loadWorld(created.metadata.id);
+
+    expect(loaded?.runtime.inventory.selectedHotbarIndex).toBe(3);
+    expect(loaded?.runtime.inventory.hotbar?.[0]).toEqual({
+      itemId: "block:basic_workbench",
+      count: 1,
+    });
+    expect(loaded?.runtime.inventory.backpack?.[0]).toEqual({
+      itemId: "block:assembler_workbench",
+      count: 2,
+    });
+  });
+
+  it("preserves unknown item and material ids without crashing", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const manager = createManager();
+    const created = await manager.createWorld(getDefaultGameSettings(), 1000);
+    const missingMaterialItemId = itemIdForMaterial("generated:missing");
+
+    await manager.saveWorld({
+      metadata: created.metadata,
+      player: { position: null },
+      inventory: {
+        selectedHotbarIndex: 0,
+        hotbar: [{ itemId: "modded:item", count: 4 }],
+        backpack: [{ itemId: missingMaterialItemId, count: 1 }],
+      },
+      terrainEditChunks: [],
+    });
+
+    const loaded = await manager.loadWorld(created.metadata.id);
+
+    expect(loaded?.runtime.inventory.hotbar?.[0]).toEqual({
+      itemId: "modded:item",
+      count: 4,
+    });
+    expect(loaded?.runtime.inventory.backpack?.[0]).toEqual({
+      itemId: missingMaterialItemId,
+      count: 1,
+    });
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining("modded:item"));
+    warn.mockRestore();
   });
 
   it("generated material persists after save and load", async () => {

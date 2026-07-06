@@ -9,6 +9,7 @@ import {
   DAY_OR_NIGHT_SECONDS,
   cycleWeatherKind,
   STORM_LIGHTNING_CHANCE_PER_SECOND,
+  weatherScheduleAtTime,
   WEATHER_SEQUENCE,
   type AtmosphereState,
 } from "./Atmosphere.ts";
@@ -93,6 +94,26 @@ describe("atmosphere state contract", () => {
     }
 
     expect(second).toEqual(first);
+  });
+
+  it("can reconstruct automatic weather from saved world time and seed", () => {
+    const seed = 12345;
+    const elapsedSeconds = DAY_NIGHT_CYCLE_SECONDS * 3.35;
+    const direct = weatherScheduleAtTime(seed, elapsedSeconds, "clear", {
+      allowSandstorm: true,
+    });
+    const advanced = advanceWeatherSchedule(
+      createWeatherSchedule(seed, "clear", {
+        allowSandstorm: true,
+      }),
+      elapsedSeconds,
+      seed,
+      {
+        allowSandstorm: true,
+      },
+    );
+
+    expect(direct).toEqual(advanced);
   });
 
   it("cycles manual weather and skips sandstorms unless available", () => {

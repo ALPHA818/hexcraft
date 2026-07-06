@@ -1,6 +1,7 @@
 import {
   classifyMaterialCapabilities,
   type MaterialCapabilities,
+  type MaterialCapabilityKey,
 } from "../materials/MaterialCapabilities.ts";
 import type { MaterialDefinition } from "../materials/MaterialTypes.ts";
 import {
@@ -52,6 +53,15 @@ export const GENERATED_MATERIAL_RECIPE_OUTPUTS = {
   circuit: "material:circuit",
 } as const satisfies Record<string, ItemId>;
 
+const GENERATED_MATERIAL_RECIPE_CAPABILITIES = {
+  tool_upgrade: "toolGrade",
+  stabilized_block: "buildingGrade",
+  fuel_cell: "fuelGrade",
+  magic_core: "magicFocusGrade",
+  explosive_compound: "explosiveGrade",
+  circuit: "conductorGrade",
+} as const satisfies Record<GeneratedMaterialRecipeKind, MaterialCapabilityKey>;
+
 function materialRecipeId(
   kind: GeneratedMaterialRecipeKind,
   materialId: string,
@@ -86,13 +96,27 @@ function materialRecipe(
   material: MaterialDefinition,
   kind: GeneratedMaterialRecipeKind,
   capabilityGrade: number,
-  recipe: Omit<ShapelessRecipe, "type" | "workbenchType"> &
-    Partial<Pick<ShapelessRecipe, "workbenchType">>,
+  recipe: Omit<
+    ShapelessRecipe,
+    "type" | "workbenchType" | "requiredWorkbench"
+  > &
+    Partial<Pick<ShapelessRecipe, "workbenchType" | "requiredWorkbench">>,
 ): GeneratedMaterialRecipe {
+  const requiredWorkbench =
+    recipe.requiredWorkbench ??
+    recipe.workbenchType ??
+    workbenchForGeneratedMaterialRecipe(kind);
+  const capabilityKey = GENERATED_MATERIAL_RECIPE_CAPABILITIES[kind];
+
   return {
     type: "shapeless",
-    workbenchType: workbenchForGeneratedMaterialRecipe(kind),
     ...recipe,
+    requiredWorkbench,
+    workbenchType: requiredWorkbench,
+    requiredResearchTier: material.requiredResearchTier,
+    requiredMaterialCapabilities: {
+      [capabilityKey]: GENERATED_MATERIAL_RECIPE_THRESHOLDS[capabilityKey],
+    },
     generatedMaterialId: material.id,
     generatedRecipeKind: kind,
     capabilityGrade,

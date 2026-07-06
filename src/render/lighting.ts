@@ -1,4 +1,3 @@
-import type { AtmosphereState } from "../environment/Atmosphere.ts";
 import {
   lookAt,
   multiply,
@@ -10,7 +9,7 @@ import {
 
 export function lightViewProjection(
   cameraPosition: Vec3,
-  atmosphere: AtmosphereState,
+  atmosphere: Readonly<{ lightDirection: readonly [number, number, number] }>,
   webGl: boolean,
 ): Mat4 {
   const target: Vec3 = [

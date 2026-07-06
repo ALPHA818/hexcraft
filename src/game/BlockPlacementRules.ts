@@ -8,6 +8,7 @@ import { PLAYER_EYE_HEIGHT } from "../input/FirstPersonCamera.ts";
 import {
   itemDefinitionFor,
   placeableMaterialForItem,
+  type ItemDefinition,
 } from "../items/ItemRegistry.ts";
 import {
   type VoxelPosition,
@@ -30,6 +31,7 @@ export type BlockPlacementFailureReason =
   | "out_of_reach"
   | "air"
   | "non_placeable_item"
+  | "unstabilized_material"
   | "unloaded"
   | "occupied"
   | "inside_player"
@@ -46,11 +48,12 @@ export type BlockPlacementInput = Readonly<{
     distance: VoxelRaycastHit["distance"];
   }> | null;
   selectedItemId: string | null;
+  selectedItem?: ItemDefinition | null;
   selectedMaterial?: TerrainMaterial | null;
   playerPosition: readonly [number, number, number];
   world: BlockPlacementWorld;
   mode: GameMode;
-  inventoryCount?: number;
+  selectedStackCount?: number;
   maximumReach?: number;
 }>;
 
@@ -110,6 +113,7 @@ const FAILURE_MESSAGES: Record<BlockPlacementFailureReason, string> = {
   out_of_reach: "Too far away.",
   air: "Cannot place air.",
   non_placeable_item: "Select a placeable block.",
+  unstabilized_material: "Stabilize this material before placing it.",
   unloaded: "That area is not loaded yet.",
   occupied: "That space is already blocked.",
   inside_player: "Cannot place inside yourself.",
@@ -203,6 +207,17 @@ function selectedPlacementMaterial(
   return selectedItemId ? placeableMaterialForItem(selectedItemId) : null;
 }
 
+function selectedItemDefinition(
+  selectedItemId: string | null,
+  selectedItem: ItemDefinition | null | undefined,
+): ItemDefinition | null {
+  if (selectedItem !== undefined) {
+    return selectedItem;
+  }
+
+  return selectedItemId ? itemDefinitionFor(selectedItemId) : null;
+}
+
 export function validateBlockPlacement(
   input: BlockPlacementInput,
 ): BlockPlacementResult {
@@ -229,14 +244,20 @@ export function validateBlockPlacement(
     return fail("air");
   }
 
+  const selectedItem = selectedItemDefinition(
+    input.selectedItemId,
+    input.selectedItem,
+  );
+
   if (material === null) {
+    if (selectedItem?.kind === "generated_material") {
+      return fail("unstabilized_material");
+    }
+
     return fail("non_placeable_item");
   }
 
   const block = blockDefinitionFor(material);
-  const selectedItem = input.selectedItemId
-    ? itemDefinitionFor(input.selectedItemId)
-    : null;
 
   if (
     !block.placeable ||
@@ -265,7 +286,10 @@ export function validateBlockPlacement(
     return fail("inside_player");
   }
 
-  if (input.mode === "survival" && Math.max(0, input.inventoryCount ?? 0) < 1) {
+  if (
+    input.mode === "survival" &&
+    Math.max(0, input.selectedStackCount ?? 0) < 1
+  ) {
     return fail("missing_inventory");
   }
 

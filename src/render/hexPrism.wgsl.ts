@@ -199,3 +199,48 @@ fn shadow_vertex(@location(0) position: vec3<f32>) -> @builtin(position) vec4<f3
   return uniforms.light_view_projection * uniforms.model * vec4<f32>(position, 1.0);
 }
 `;
+
+export const atmosphereParticleShader = /* wgsl */ `
+struct Uniforms {
+  model_view_projection: mat4x4<f32>,
+  model: mat4x4<f32>,
+  light_view_projection: mat4x4<f32>,
+  light_direction: vec4<f32>,
+  camera_position: vec4<f32>,
+  light_color: vec4<f32>,
+  fog_color: vec4<f32>,
+  environment: vec4<f32>,
+  lighting: vec4<f32>,
+}
+
+@group(0) @binding(0)
+var<uniform> uniforms: Uniforms;
+
+struct ParticleInput {
+  @location(0) position: vec3<f32>,
+  @location(1) color: vec4<f32>,
+}
+
+struct ParticleOutput {
+  @builtin(position) position: vec4<f32>,
+  @location(0) color: vec4<f32>,
+  @location(1) world_position: vec3<f32>,
+}
+
+@vertex
+fn atmosphere_particle_vertex(input: ParticleInput) -> ParticleOutput {
+  var output: ParticleOutput;
+  output.position = uniforms.model_view_projection * vec4<f32>(input.position, 1.0);
+  output.color = input.color;
+  output.world_position = input.position;
+  return output;
+}
+
+@fragment
+fn atmosphere_particle_fragment(input: ParticleOutput) -> @location(0) vec4<f32> {
+  let camera_distance = distance(input.world_position, uniforms.camera_position.xyz);
+  let fog_amount = smoothstep(uniforms.lighting.z, uniforms.lighting.w, camera_distance);
+  let color = mix(input.color.rgb, uniforms.fog_color.rgb, fog_amount * 0.42);
+  return vec4<f32>(color, input.color.a);
+}
+`;

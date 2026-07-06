@@ -137,6 +137,10 @@ body {
 }
 
 #clouds {
+  --cloud-offset-x: 0px;
+  --cloud-offset-y: 0px;
+  --cloud-screen-x: 0px;
+  --cloud-screen-y: 0px;
   z-index: 0;
   width: 180%;
   height: 55%;
@@ -147,14 +151,19 @@ body {
     radial-gradient(ellipse at 49% 28%, #fff 0 10%, transparent 10.5%),
     radial-gradient(ellipse at 67% 45%, #fff 0 8%, transparent 8.5%),
     radial-gradient(ellipse at 84% 31%, #fff 0 10%, transparent 10.5%);
+  background-position: var(--cloud-offset-x) var(--cloud-offset-y);
   background-size: 58rem 18rem;
   mix-blend-mode: screen;
-  transform: translateX(-18%);
-  animation: clouds-drift 70s linear infinite;
+  transform: translate3d(
+    calc(-18% + var(--cloud-screen-x)),
+    var(--cloud-screen-y),
+    0
+  );
   pointer-events: none;
   transition:
     opacity 1.5s ease,
-    filter 1.5s ease;
+    filter 1.5s ease,
+    transform 260ms linear;
 }
 
 #weather {
@@ -163,12 +172,6 @@ body {
   background:
     rgb(255 255 255 / var(--lightning, 0)),
     rgb(var(--weather-haze-color, 255 255 255) / var(--weather-haze, 0));
-}
-
-@keyframes clouds-drift {
-  to {
-    transform: translateX(-2%);
-  }
 }
 
 #game {
@@ -1595,27 +1598,54 @@ p {
   width: 4.3rem;
   height: 3.8rem;
   padding: 1.15rem 0.35rem 0.25rem;
-  border: 2px solid rgb(255 255 255 / 30%);
+  border: 2px solid rgb(255 255 255 / 22%);
   border-radius: 0.55rem;
   color: white;
-  background: rgb(7 19 25 / 76%);
-  box-shadow: 0 0.35rem 1rem rgb(0 0 0 / 28%);
+  background:
+    linear-gradient(180deg, rgb(255 255 255 / 7%), transparent 52%),
+    rgb(7 19 25 / 82%);
+  box-shadow:
+    inset 0 0 0 1px rgb(0 0 0 / 34%),
+    0 0.35rem 1rem rgb(0 0 0 / 28%);
   cursor: pointer;
+  outline: none;
 }
 
 .hotbar-slot.selected {
   border-color: #c8ff70;
   box-shadow:
-    0 0 0 2px rgb(30 55 21 / 75%),
+    0 0 0 2px rgb(200 255 112 / 24%),
+    inset 0 0 1.3rem rgb(200 255 112 / 13%),
     0 0.35rem 1rem rgb(0 0 0 / 32%);
   transform: translateY(-0.25rem);
+}
+
+.hotbar-slot:focus-visible,
+.inventory-slot:focus-visible,
+.creative-catalog-item-card:focus-visible,
+.workbench-recipe button:focus-visible,
+.creative-catalog-close:focus-visible,
+.creative-catalog-tab:focus-visible,
+.creative-catalog-footer button:focus-visible,
+.workbench-close:focus-visible,
+.workbench-tab:focus-visible,
+.inventory-action:focus-visible,
+.inventory-filter-tab:focus-visible,
+.inventory-sort-button:focus-visible {
+  outline: 2px solid #6effd1;
+  outline-offset: 2px;
 }
 
 .hotbar-slot strong {
   position: absolute;
   right: 0.35rem;
   bottom: 0.2rem;
+  min-width: 1.25rem;
+  padding: 0.05rem 0.25rem;
+  border-radius: 999px;
   font-size: 0.85rem;
+  text-align: center;
+  background: rgb(0 0 0 / 42%);
   text-shadow: 0 1px 2px black;
 }
 
@@ -1664,6 +1694,21 @@ p {
   position: absolute;
   top: 0.42rem;
   right: 0.42rem;
+  width: 1.15rem;
+  height: 1.15rem;
+}
+
+.hotbar-slot .tool-durability {
+  position: absolute;
+  right: 0.35rem;
+  bottom: 0.12rem;
+  left: 0.35rem;
+  width: auto;
+}
+
+.hotbar-slot .tool-durability + strong,
+.hotbar-slot.inventory-kind-tool strong {
+  bottom: 0.45rem;
 }
 
 .generated-material-visual {
@@ -1780,9 +1825,11 @@ p {
   max-height: min(82dvh, 42rem);
   padding: 1.3rem;
   border: 1px solid rgb(255 255 255 / 20%);
-  border-radius: 1rem;
+  border-radius: 0.85rem;
   color: #eff8eb;
-  background: rgb(6 18 23 / 94%);
+  background:
+    linear-gradient(180deg, rgb(255 255 255 / 5%), transparent 18rem),
+    rgb(6 18 23 / 96%);
   box-shadow: 0 1.5rem 5rem rgb(0 0 0 / 55%);
   transform: translate(-50%, -50%);
   backdrop-filter: blur(1rem);
@@ -1833,6 +1880,83 @@ p {
   text-transform: uppercase;
 }
 
+.inventory-backpack-controls {
+  display: grid;
+  gap: 0.5rem;
+  padding: 0.65rem;
+  border: 1px solid rgb(255 255 255 / 8%);
+  border-radius: 0.65rem;
+  background: rgb(255 255 255 / 4%);
+}
+
+.inventory-filter-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+}
+
+.inventory-filter-tab,
+.inventory-sort-button,
+.inventory-sort-select,
+.inventory-backpack-search {
+  min-height: 2.15rem;
+  border: 1px solid rgb(255 255 255 / 12%);
+  border-radius: 0.45rem;
+  color: #d7e8ef;
+  background: rgb(6 18 23 / 82%);
+}
+
+.inventory-filter-tab,
+.inventory-sort-button {
+  padding: 0 0.65rem;
+  font-size: 0.7rem;
+  font-weight: 800;
+  cursor: pointer;
+}
+
+.inventory-filter-tab.selected {
+  border-color: rgb(200 255 112 / 42%);
+  color: #142013;
+  background: #c8ff70;
+}
+
+.inventory-backpack-search,
+.inventory-sort-select {
+  width: 100%;
+  padding: 0 0.65rem;
+  font-size: 0.75rem;
+}
+
+.inventory-backpack-search::placeholder {
+  color: #728a94;
+}
+
+.inventory-sort-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 0.4rem;
+}
+
+.inventory-sort-button {
+  color: #082017;
+  background: #6effd1;
+}
+
+.inventory-sort-button:disabled {
+  color: #7e9098;
+  background: rgb(255 255 255 / 7%);
+  cursor: not-allowed;
+}
+
+.inventory-empty-filter {
+  margin: 0;
+  padding: 0.65rem;
+  border: 1px dashed rgb(255 255 255 / 12%);
+  border-radius: 0.55rem;
+  color: #91a4ad;
+  font-size: 0.76rem;
+}
+
 .inventory-slot-grid {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
@@ -1844,28 +1968,45 @@ p {
 }
 
 .inventory-slot {
+  position: relative;
   display: grid;
   grid-template-columns: auto auto minmax(0, 1fr);
   align-items: center;
   gap: 0.45rem;
-  min-height: 3rem;
-  padding: 0.5rem;
-  border: 1px solid rgb(255 255 255 / 9%);
-  border-radius: 0.55rem;
+  min-height: 3.35rem;
+  padding: 0.55rem;
+  border: 1px solid rgb(255 255 255 / 11%);
+  border-radius: 0.5rem;
   color: #eff8eb;
-  background: rgb(255 255 255 / 5%);
+  background:
+    linear-gradient(180deg, rgb(255 255 255 / 6%), transparent 62%),
+    rgb(255 255 255 / 5%);
+  box-shadow: inset 0 0 0 1px rgb(0 0 0 / 20%);
   cursor: pointer;
   user-select: none;
 }
 
 .inventory-slot.selected {
-  border-color: rgb(200 255 112 / 55%);
-  box-shadow: inset 0 0 0 1px rgb(200 255 112 / 28%);
+  border-color: rgb(200 255 112 / 72%);
+  background:
+    linear-gradient(180deg, rgb(200 255 112 / 15%), transparent 70%),
+    rgb(255 255 255 / 6%);
+  box-shadow:
+    inset 0 0 0 1px rgb(200 255 112 / 34%),
+    0 0 0 1px rgb(200 255 112 / 18%);
 }
 
 .inventory-slot.empty {
+  border-color: rgb(255 255 255 / 7%);
   color: #60737d;
-  background: rgb(255 255 255 / 3%);
+  background:
+    repeating-linear-gradient(
+      -45deg,
+      rgb(255 255 255 / 3%) 0 0.45rem,
+      transparent 0.45rem 0.9rem
+    ),
+    rgb(255 255 255 / 2%);
+  box-shadow: inset 0 0 0 1px rgb(255 255 255 / 2%);
 }
 
 .inventory-holding-stack .inventory-slot {
@@ -1879,8 +2020,8 @@ p {
 }
 
 .inventory-slot .item-swatch {
-  width: 1rem;
-  height: 1rem;
+  width: 1.22rem;
+  height: 1.22rem;
 }
 
 .inventory-slot-details {
@@ -1899,9 +2040,37 @@ p {
 }
 
 .inventory-slot-details strong {
+  justify-self: start;
   min-height: 1em;
+  min-width: 1.3rem;
+  padding: 0.05rem 0.32rem;
+  border-radius: 999px;
   color: #adc2ca;
   font-size: 0.7rem;
+  line-height: 1.25;
+  background: rgb(0 0 0 / 24%);
+}
+
+.tool-durability {
+  display: block;
+  width: 100%;
+  height: 0.28rem;
+  overflow: hidden;
+  border-radius: 999px;
+  background: rgb(255 255 255 / 10%);
+  box-shadow: inset 0 0 0 1px rgb(0 0 0 / 24%);
+}
+
+.tool-durability[hidden] {
+  display: none;
+}
+
+.tool-durability-fill {
+  display: block;
+  width: var(--durability, 100%);
+  height: 100%;
+  border-radius: inherit;
+  background: linear-gradient(90deg, #f66b6b, #f6d76b 42%, #6effd1);
 }
 
 .inventory-slot.generated-material-visual {
@@ -1914,6 +2083,12 @@ p {
     ),
     linear-gradient(90deg, rgb(6 18 23 / 18%), rgb(6 18 23 / 76%)),
     linear-gradient(90deg, var(--item-base-color), transparent 70%);
+}
+
+.inventory-slot.generated-material-visual .item-swatch,
+.creative-catalog-item-card.generated-material-visual .item-swatch,
+.inventory-cursor-stack.generated-material-visual .item-swatch {
+  border-color: var(--item-accent-color);
 }
 
 .inventory-cursor-stack {
@@ -2139,9 +2314,11 @@ p {
   max-height: min(88dvh, 44rem);
   padding: 1.2rem;
   border: 1px solid rgb(200 255 112 / 22%);
-  border-radius: 1rem;
+  border-radius: 0.85rem;
   color: #eff8eb;
-  background: rgb(6 18 23 / 96%);
+  background:
+    linear-gradient(180deg, rgb(200 255 112 / 5%), transparent 18rem),
+    rgb(6 18 23 / 96%);
   box-shadow: 0 1.5rem 5rem rgb(0 0 0 / 55%);
 }
 
@@ -2200,12 +2377,84 @@ p {
   padding-right: 0.25rem;
 }
 
+.workbench-recipe {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 0.85rem;
+  align-items: center;
+  border: 1px solid rgb(255 255 255 / 10%);
+  background:
+    linear-gradient(180deg, rgb(255 255 255 / 5%), transparent),
+    rgb(255 255 255 / 4%);
+}
+
+.workbench-recipe.can-craft {
+  border-color: rgb(110 255 209 / 28%);
+}
+
+.workbench-recipe.missing-ingredients {
+  border-color: rgb(246 215 107 / 16%);
+}
+
+.workbench-recipe-category {
+  display: inline-flex;
+  width: fit-content;
+  margin-bottom: 0.35rem;
+  padding: 0.12rem 0.45rem;
+  border: 1px solid rgb(255 255 255 / 10%);
+  border-radius: 999px;
+  color: #91a4ad;
+  font-size: 0.66rem;
+  font-weight: 800;
+  text-transform: uppercase;
+}
+
 .workbench-recipe strong {
   color: #eff8eb;
 }
 
 .workbench-recipe p {
   font-size: 0.78rem;
+}
+
+.workbench-ingredient-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.3rem;
+  margin: 0.5rem 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.workbench-ingredient {
+  padding: 0.16rem 0.42rem;
+  border-radius: 999px;
+  color: #d7e8ef;
+  font-size: 0.68rem;
+  font-weight: 700;
+  background: rgb(110 255 209 / 11%);
+}
+
+.workbench-ingredient.missing {
+  color: #f6d76b;
+  background: rgb(246 215 107 / 11%);
+}
+
+.workbench-recipe button {
+  min-width: 5.25rem;
+  min-height: 2.35rem;
+  border: 0;
+  border-radius: 0.48rem;
+  color: #082017;
+  font-weight: 900;
+  background: #6effd1;
+  cursor: pointer;
+}
+
+.workbench-recipe button:disabled {
+  color: #82929a;
+  background: rgb(255 255 255 / 8%);
+  cursor: not-allowed;
 }
 
 .workbench-combiner-entry {
@@ -2241,9 +2490,11 @@ p {
   max-height: min(88dvh, 48rem);
   padding: 1.2rem;
   border: 1px solid rgb(246 215 107 / 24%);
-  border-radius: 1rem;
+  border-radius: 0.85rem;
   color: #eff8eb;
-  background: rgb(6 18 23 / 96%);
+  background:
+    linear-gradient(180deg, rgb(246 215 107 / 5%), transparent 18rem),
+    rgb(6 18 23 / 96%);
   box-shadow: 0 1.5rem 5rem rgb(0 0 0 / 55%);
 }
 
@@ -2306,6 +2557,7 @@ p {
 }
 
 .creative-catalog-tab.selected {
+  border-color: rgb(246 215 107 / 54%);
   color: #16210f;
   background: #f6d76b;
 }
@@ -2324,17 +2576,20 @@ p {
   grid-template-columns: auto minmax(0, 1fr);
   align-items: center;
   gap: 0.6rem;
-  min-height: 4rem;
+  min-height: 4.25rem;
   padding: 0.65rem;
   border: 1px solid rgb(255 255 255 / 10%);
-  border-radius: 0.65rem;
+  border-radius: 0.55rem;
   color: #eff8eb;
   text-align: left;
-  background: rgb(255 255 255 / 5%);
+  background:
+    linear-gradient(180deg, rgb(255 255 255 / 6%), transparent 64%),
+    rgb(255 255 255 / 5%);
   cursor: pointer;
 }
 
-.creative-catalog-item-card:hover {
+.creative-catalog-item-card:hover,
+.creative-catalog-item-card:focus-visible {
   border-color: rgb(246 215 107 / 42%);
 }
 
@@ -2620,6 +2875,28 @@ body:not(.mobile-game) #mobile-controls {
     grid-template-columns: 1fr;
   }
 
+  .creative-catalog-close,
+  .creative-catalog-tab,
+  .creative-catalog-footer button,
+  .workbench-close,
+  .workbench-tab,
+  .workbench-recipe button,
+  .inventory-action,
+  .inventory-filter-tab,
+  .inventory-sort-button,
+  .inventory-sort-select,
+  .inventory-backpack-search {
+    min-height: 2.75rem;
+  }
+
+  .workbench-recipe {
+    grid-template-columns: 1fr;
+  }
+
+  .workbench-recipe button {
+    width: 100%;
+  }
+
   .workbench-card header {
     align-items: stretch;
     flex-direction: column;
@@ -2637,6 +2914,15 @@ body:not(.mobile-game) #mobile-controls {
     max-height: none;
     overflow: visible;
     padding-right: 0;
+  }
+
+  .inventory-sort-row {
+    grid-template-columns: 1fr;
+  }
+
+  .inventory-slot-grid,
+  .inventory-container-hotbar .inventory-slot-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 }
 

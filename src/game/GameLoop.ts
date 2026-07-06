@@ -65,6 +65,12 @@ export function isDesertHeavyArea(
   position: readonly [number, number, number],
 ): boolean {
   const center = worldToAxial(position[0], position[2]);
+  const centerBiome = biomeAt(center.q, center.r, seed);
+
+  if (centerBiome === "desert" || centerBiome === "badlands") {
+    return true;
+  }
+
   let dryBiomeCount = 0;
   let sampleCount = 0;
 
@@ -150,6 +156,11 @@ export function startGameLoop(options: StartGameLoopOptions): void {
     onDeviceLost,
   } = options;
   let streamRequestId = 0;
+  const biomeAtWorld = (worldX: number, worldZ: number) => {
+    const sampleAxial = worldToAxial(worldX, worldZ);
+
+    return biomeAt(sampleAxial.q, sampleAxial.r, settings.worldSeed);
+  };
 
   renderer.start(
     camera,
@@ -219,6 +230,15 @@ export function startGameLoop(options: StartGameLoopOptions): void {
       }
       const cameraState = camera.state();
       const cameraPosition = camera.position();
+      const axial = worldToAxial(cameraPosition[0], cameraPosition[2]);
+      const biome = biomeAt(axial.q, axial.r, settings.worldSeed);
+
+      atmosphere.update(deltaSeconds, {
+        position: cameraPosition,
+        direction: camera.direction(),
+        biome,
+        biomeAtWorld,
+      });
       monitor.recordFrame(deltaSeconds);
       debugOverlay.advance(deltaSeconds);
 
@@ -261,15 +281,31 @@ export function startGameLoop(options: StartGameLoopOptions): void {
 
       const activeGame = getActiveGame();
       if (activeGame?.settings.debugOverlay && debugOverlay.shouldRender()) {
-        const axial = worldToAxial(cameraPosition[0], cameraPosition[2]);
+        const worldAtmosphere = atmosphere.state().worldAtmosphere;
 
         debugOverlay.update({
           performance: monitor.snapshot(),
           position: cameraPosition,
           axial,
           level: playerLevel(cameraPosition),
-          biome: biomeAt(axial.q, axial.r, settings.worldSeed),
+          biome,
           gameMode: activeGame.settings.gameMode,
+          weather: worldAtmosphere
+            ? {
+                cellX: worldAtmosphere.weatherCell.cellX,
+                cellZ: worldAtmosphere.weatherCell.cellZ,
+                timeBucket: worldAtmosphere.weatherCell.timeBucket,
+                cellWeather: worldAtmosphere.weatherCell.cellWeather,
+                localWeather: worldAtmosphere.weather,
+                localIntensity: worldAtmosphere.weatherIntensity,
+                wind: worldAtmosphere.clouds.wind,
+                cloudSample: [
+                  worldAtmosphere.clouds.worldU,
+                  worldAtmosphere.clouds.worldV,
+                ],
+                particleCount: atmosphere.state().weatherParticles?.length ?? 0,
+              }
+            : undefined,
         });
       }
     },

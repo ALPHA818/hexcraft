@@ -100,6 +100,10 @@ export class GameTime {
     return this.#timeOfDay * this.#dayLengthSeconds;
   }
 
+  get totalTimeSeconds(): number {
+    return (this.#dayNumber - 1 + this.#timeOfDay) * this.#dayLengthSeconds;
+  }
+
   get sunAngle(): number {
     return this.#timeOfDay * TAU - Math.PI / 2;
   }

@@ -3,6 +3,13 @@ import type { Atmosphere } from "../environment/Atmosphere.ts";
 import type { FirstPersonCamera } from "../input/FirstPersonCamera.ts";
 import { DEVICE_PROFILE } from "../platform/deviceProfile.ts";
 import {
+  rendererAtmosphereSnapshotFromState,
+  weatherParticleVertexFloatCount,
+  WEATHER_PARTICLE_FLOATS_PER_VERTEX,
+  writeWeatherParticleVertices,
+  type RendererAtmosphereSnapshot,
+} from "./AtmosphereRenderData.ts";
+import {
   BLOCK_TEXTURE_TILE_COUNT,
   createBlockTextureAtlas,
 } from "./blockTextureAtlas.ts";
@@ -177,6 +184,34 @@ precision highp float;
 void main() {}
 `;
 
+export const WEBGL_ATMOSPHERE_PARTICLE_VERTEX_SHADER = `#version 300 es
+precision highp float;
+
+layout(location = 0) in vec3 position;
+layout(location = 1) in vec4 color;
+
+uniform mat4 model_view_projection;
+
+out vec4 particle_color;
+
+void main() {
+  gl_Position = model_view_projection * vec4(position, 1.0);
+  particle_color = color;
+}
+`;
+
+export const WEBGL_ATMOSPHERE_PARTICLE_FRAGMENT_SHADER = `#version 300 es
+precision highp float;
+
+in vec4 particle_color;
+
+out vec4 output_color;
+
+void main() {
+  output_color = particle_color;
+}
+`;
+
 function compileShader(
   gl: WebGL2RenderingContext,
   type: number,
@@ -255,6 +290,39 @@ function createShadowProgram(gl: WebGL2RenderingContext): WebGLProgram {
   return program;
 }
 
+function createParticleProgram(gl: WebGL2RenderingContext): WebGLProgram {
+  const vertexShader = compileShader(
+    gl,
+    gl.VERTEX_SHADER,
+    WEBGL_ATMOSPHERE_PARTICLE_VERTEX_SHADER,
+  );
+  const fragmentShader = compileShader(
+    gl,
+    gl.FRAGMENT_SHADER,
+    WEBGL_ATMOSPHERE_PARTICLE_FRAGMENT_SHADER,
+  );
+  const program = gl.createProgram();
+
+  if (!program) {
+    throw new Error("Could not create the WebGL atmosphere particle program.");
+  }
+
+  gl.attachShader(program, vertexShader);
+  gl.attachShader(program, fragmentShader);
+  gl.linkProgram(program);
+  gl.deleteShader(vertexShader);
+  gl.deleteShader(fragmentShader);
+
+  if (!gl.getProgramParameter(program, gl.LINK_STATUS)) {
+    throw new Error(
+      `WebGL atmosphere particle linking failed: ${
+        gl.getProgramInfoLog(program) ?? "unknown error"
+      }`,
+    );
+  }
+  return program;
+}
+
 function requireUniform(
   gl: WebGL2RenderingContext,
   program: WebGLProgram,
@@ -274,6 +342,7 @@ export class WebGlRenderer {
   readonly #gl: WebGL2RenderingContext;
   readonly #program: WebGLProgram;
   readonly #shadowProgram: WebGLProgram;
+  readonly #particleProgram: WebGLProgram;
   readonly #shadowFramebuffer: WebGLFramebuffer;
   readonly #shadowTexture: WebGLTexture;
   readonly #blockTexture: WebGLTexture;
@@ -281,6 +350,8 @@ export class WebGlRenderer {
   readonly #vertexBuffer: WebGLBuffer;
   readonly #entityVertexArray: WebGLVertexArrayObject;
   readonly #entityVertexBuffer: WebGLBuffer;
+  readonly #particleVertexArray: WebGLVertexArrayObject;
+  readonly #particleVertexBuffer: WebGLBuffer;
   readonly #modelViewProjectionLocation: WebGLUniformLocation;
   readonly #modelLocation: WebGLUniformLocation;
   readonly #lightViewProjectionLocation: WebGLUniformLocation;
@@ -293,11 +364,14 @@ export class WebGlRenderer {
   readonly #blockAtlasLocation: WebGLUniformLocation;
   readonly #shadowMapLocation: WebGLUniformLocation;
   readonly #shadowLightViewProjectionLocation: WebGLUniformLocation;
+  readonly #particleModelViewProjectionLocation: WebGLUniformLocation;
 
   #animationFrame = 0;
   #lastFrameTime = 0;
   #isRunning = false;
   #animationSeconds = 0;
+  #particleVertexData = new Float32Array(0);
+  #particleVertexCount = 0;
   #opaqueVertexCount: number;
   #translucentVertexCount: number;
   #entityVertexCount = 0;
@@ -311,6 +385,7 @@ export class WebGlRenderer {
     this.#gl = gl;
     this.#program = createProgram(gl);
     this.#shadowProgram = createShadowProgram(gl);
+    this.#particleProgram = createParticleProgram(gl);
 
     this.#modelViewProjectionLocation = requireUniform(
       gl,
@@ -348,6 +423,11 @@ export class WebGlRenderer {
       this.#shadowProgram,
       "light_view_projection",
     );
+    this.#particleModelViewProjectionLocation = requireUniform(
+      gl,
+      this.#particleProgram,
+      "model_view_projection",
+    );
 
     this.#opaqueVertexCount = mesh.opaqueVertexCount ?? mesh.vertexCount;
     this.#translucentVertexCount = mesh.translucentVertexCount ?? 0;
@@ -356,12 +436,16 @@ export class WebGlRenderer {
     const vertexBuffer = gl.createBuffer();
     const entityVertexArray = gl.createVertexArray();
     const entityVertexBuffer = gl.createBuffer();
+    const particleVertexArray = gl.createVertexArray();
+    const particleVertexBuffer = gl.createBuffer();
 
     if (
       !vertexArray ||
       !vertexBuffer ||
       !entityVertexArray ||
-      !entityVertexBuffer
+      !entityVertexBuffer ||
+      !particleVertexArray ||
+      !particleVertexBuffer
     ) {
       throw new Error("Could not allocate the WebGL prism geometry.");
     }
@@ -370,6 +454,8 @@ export class WebGlRenderer {
     this.#vertexBuffer = vertexBuffer;
     this.#entityVertexArray = entityVertexArray;
     this.#entityVertexBuffer = entityVertexBuffer;
+    this.#particleVertexArray = particleVertexArray;
+    this.#particleVertexBuffer = particleVertexBuffer;
     gl.bindVertexArray(vertexArray);
     gl.bindBuffer(gl.ARRAY_BUFFER, vertexBuffer);
     gl.bufferData(gl.ARRAY_BUFFER, mesh.vertices, gl.STATIC_DRAW);
@@ -403,6 +489,23 @@ export class WebGlRenderer {
       false,
       stride,
       9 * Float32Array.BYTES_PER_ELEMENT,
+    );
+
+    const particleStride =
+      WEATHER_PARTICLE_FLOATS_PER_VERTEX * Float32Array.BYTES_PER_ELEMENT;
+    gl.bindVertexArray(particleVertexArray);
+    gl.bindBuffer(gl.ARRAY_BUFFER, particleVertexBuffer);
+    gl.bufferData(gl.ARRAY_BUFFER, particleStride, gl.DYNAMIC_DRAW);
+    gl.enableVertexAttribArray(0);
+    gl.vertexAttribPointer(0, 3, gl.FLOAT, false, particleStride, 0);
+    gl.enableVertexAttribArray(1);
+    gl.vertexAttribPointer(
+      1,
+      4,
+      gl.FLOAT,
+      false,
+      particleStride,
+      3 * Float32Array.BYTES_PER_ELEMENT,
     );
 
     gl.bindVertexArray(entityVertexArray);
@@ -549,9 +652,11 @@ export class WebGlRenderer {
       this.#lastFrameTime = time;
       this.#animationSeconds += Math.min(deltaSeconds, 0.1);
       camera.update(deltaSeconds);
-      atmosphere.update(deltaSeconds);
       onFrame(deltaSeconds);
-      this.#render(camera, atmosphere);
+      this.#render(
+        camera,
+        rendererAtmosphereSnapshotFromState(atmosphere.state()),
+      );
       this.#animationFrame = requestAnimationFrame(renderFrame);
     };
 
@@ -584,6 +689,67 @@ export class WebGlRenderer {
     this.#entityVertexCount = mesh.opaqueVertexCount ?? mesh.vertexCount;
   }
 
+  #updateAtmosphereParticleMesh(
+    atmosphere: RendererAtmosphereSnapshot,
+    cameraDirection: readonly [number, number, number],
+  ): void {
+    const requiredFloats = weatherParticleVertexFloatCount(
+      atmosphere.weatherParticles.length,
+    );
+
+    if (requiredFloats === 0) {
+      this.#particleVertexCount = 0;
+      return;
+    }
+
+    if (this.#particleVertexData.length < requiredFloats) {
+      this.#particleVertexData = new Float32Array(requiredFloats);
+    }
+
+    this.#particleVertexCount = writeWeatherParticleVertices(
+      this.#particleVertexData,
+      atmosphere,
+      cameraDirection,
+    );
+
+    if (this.#particleVertexCount === 0) {
+      return;
+    }
+
+    const gl = this.#gl;
+    gl.bindVertexArray(this.#particleVertexArray);
+    gl.bindBuffer(gl.ARRAY_BUFFER, this.#particleVertexBuffer);
+    gl.bufferData(
+      gl.ARRAY_BUFFER,
+      this.#particleVertexData.subarray(
+        0,
+        this.#particleVertexCount * WEATHER_PARTICLE_FLOATS_PER_VERTEX,
+      ),
+      gl.DYNAMIC_DRAW,
+    );
+    gl.bindVertexArray(null);
+  }
+
+  #drawAtmosphereParticles(modelViewProjection: Float32List): void {
+    if (this.#particleVertexCount === 0) {
+      return;
+    }
+
+    const gl = this.#gl;
+    gl.useProgram(this.#particleProgram);
+    gl.uniformMatrix4fv(
+      this.#particleModelViewProjectionLocation,
+      false,
+      modelViewProjection,
+    );
+    gl.bindVertexArray(this.#particleVertexArray);
+    gl.enable(gl.BLEND);
+    gl.depthMask(false);
+    gl.drawArrays(gl.TRIANGLES, 0, this.#particleVertexCount);
+    gl.depthMask(true);
+    gl.disable(gl.BLEND);
+  }
+
   #resize(): void {
     const scale = Math.min(
       window.devicePixelRatio,
@@ -600,7 +766,10 @@ export class WebGlRenderer {
     this.#gl.viewport(0, 0, width, height);
   }
 
-  #render(camera: FirstPersonCamera, atmosphere: Atmosphere): void {
+  #render(
+    camera: FirstPersonCamera,
+    environment: RendererAtmosphereSnapshot,
+  ): void {
     this.#resize();
 
     const model = identity();
@@ -612,12 +781,12 @@ export class WebGlRenderer {
       48,
     );
     const modelViewProjection = multiply(projection, multiply(view, model));
-    const environment = atmosphere.state();
     const lightMatrix = lightViewProjection(
       camera.position(),
       environment,
       true,
     );
+    this.#updateAtmosphereParticleMesh(environment, camera.direction());
 
     const gl = this.#gl;
 
@@ -696,5 +865,7 @@ export class WebGlRenderer {
       gl.depthMask(true);
       gl.disable(gl.BLEND);
     }
+
+    this.#drawAtmosphereParticles(modelViewProjection);
   }
 }

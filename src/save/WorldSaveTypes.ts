@@ -1,5 +1,10 @@
 import type { GameSettings } from "../game/GameSettings.ts";
 import type { GameMode } from "../game/gameMode.ts";
+import { TerrainMaterial } from "../geometry/terrainChunk.ts";
+import {
+  blockItemIdForMaterial,
+  itemDefinitionFor,
+} from "../items/ItemRegistry.ts";
 import type { SerializedItemStack } from "../items/ItemStack.ts";
 import { BASE_ELEMENT_MATERIALS } from "../materials/BaseElements.ts";
 import {
@@ -64,6 +69,10 @@ export type SerializedInventory = Readonly<{
   slots?: readonly (SerializedItemStack | null)[];
   items?: readonly LegacySerializedInventoryItem[];
 }>;
+
+export const SAVE_HOTBAR_SLOT_COUNT = 9;
+export const SAVE_BACKPACK_SLOT_COUNT = 27;
+const UNKNOWN_ITEM_MAX_STACK_SIZE = 9999;
 
 export type SerializedMaterialStorageItem = Readonly<{
   materialId: string;
@@ -189,6 +198,235 @@ export function settingsFromMetadata(
 export function emptyInventorySave(): SerializedInventory {
   return {
     selectedHotbarIndex: 0,
+    hotbar: emptySerializedInventorySlots(SAVE_HOTBAR_SLOT_COUNT),
+    backpack: emptySerializedInventorySlots(SAVE_BACKPACK_SLOT_COUNT),
+  };
+}
+
+function emptySerializedInventorySlots(
+  count: number,
+): readonly (SerializedItemStack | null)[] {
+  return Array.from({ length: count }, () => null);
+}
+
+function warnUnknownSavedItemId(itemId: string): void {
+  console.warn(`Unknown item id in saved inventory: ${itemId}`);
+}
+
+function normalizeSerializedItemStackValue(
+  value: unknown,
+): SerializedItemStack | null {
+  if (!value || typeof value !== "object") {
+    return null;
+  }
+
+  const stack = value as Record<string, unknown>;
+  const itemId = typeof stack.itemId === "string" ? stack.itemId.trim() : "";
+  const count =
+    typeof stack.count === "number" && Number.isFinite(stack.count)
+      ? Math.floor(stack.count)
+      : 0;
+
+  if (itemId === "" || count <= 0) {
+    return null;
+  }
+
+  const item = itemDefinitionFor(itemId);
+  const durability =
+    typeof stack.durability === "number" && Number.isFinite(stack.durability)
+      ? Math.floor(stack.durability)
+      : undefined;
+
+  if (!item) {
+    warnUnknownSavedItemId(itemId);
+    return {
+      itemId,
+      count: Math.min(UNKNOWN_ITEM_MAX_STACK_SIZE, count),
+      ...(durability !== undefined ? { durability } : {}),
+    };
+  }
+
+  if (item.kind === "tool") {
+    const safeDurability = Math.min(
+      item.maxDurability,
+      durability ?? item.maxDurability,
+    );
+
+    return safeDurability > 0
+      ? {
+          itemId: item.id,
+          count: 1,
+          durability: safeDurability,
+        }
+      : null;
+  }
+
+  return {
+    itemId: item.id,
+    count: Math.min(item.maxStackSize, count),
+  };
+}
+
+function normalizeLegacyInventoryItem(
+  value: unknown,
+): SerializedItemStack | null {
+  if (!value || typeof value !== "object") {
+    return null;
+  }
+
+  const item = value as Record<string, unknown>;
+  const material =
+    typeof item.material === "number" && Number.isFinite(item.material)
+      ? item.material
+      : null;
+  const count =
+    typeof item.count === "number" && Number.isFinite(item.count)
+      ? item.count
+      : 0;
+
+  if (material === null || count <= 0) {
+    return null;
+  }
+
+  const itemId = blockItemIdForMaterial(material as TerrainMaterial);
+
+  if (!itemId) {
+    console.warn(`Unknown terrain material in saved inventory: ${material}`);
+    return null;
+  }
+
+  return {
+    itemId,
+    count: Math.floor(count),
+  };
+}
+
+function selectedHotbarIndexFromInventory(
+  inventory: Record<string, unknown>,
+): number {
+  const selected =
+    typeof inventory.selectedHotbarIndex === "number"
+      ? inventory.selectedHotbarIndex
+      : inventory.selectedIndex;
+
+  return typeof selected === "number" && Number.isFinite(selected)
+    ? Math.max(0, Math.min(SAVE_HOTBAR_SLOT_COUNT - 1, Math.floor(selected)))
+    : 0;
+}
+
+function copySerializedSlots(
+  target: (SerializedItemStack | null)[],
+  source: readonly unknown[],
+): void {
+  for (const [index, stack] of source.entries()) {
+    if (index >= target.length) {
+      return;
+    }
+
+    target[index] = normalizeSerializedItemStackValue(stack);
+  }
+}
+
+function mergeOrPlaceSerializedStack(
+  containers: readonly (SerializedItemStack | null)[][],
+  stack: SerializedItemStack,
+): void {
+  const item = itemDefinitionFor(stack.itemId);
+  const maxStackSize = item?.maxStackSize ?? UNKNOWN_ITEM_MAX_STACK_SIZE;
+  const isStackable = item?.kind !== "tool";
+  let remaining = stack.count;
+
+  if (isStackable) {
+    for (const slots of containers) {
+      for (const [index, existing] of slots.entries()) {
+        if (!existing || existing.itemId !== stack.itemId) {
+          continue;
+        }
+
+        const added = Math.min(maxStackSize - existing.count, remaining);
+
+        if (added <= 0) {
+          continue;
+        }
+
+        slots[index] = {
+          ...existing,
+          count: existing.count + added,
+        };
+        remaining -= added;
+
+        if (remaining === 0) {
+          return;
+        }
+      }
+    }
+  }
+
+  for (const slots of containers) {
+    for (const [index, existing] of slots.entries()) {
+      if (existing) {
+        continue;
+      }
+
+      const added = isStackable ? Math.min(maxStackSize, remaining) : 1;
+
+      slots[index] = {
+        ...stack,
+        count: added,
+      };
+      remaining -= added;
+
+      if (remaining === 0) {
+        return;
+      }
+    }
+  }
+}
+
+export function normalizeSerializedInventory(
+  value: unknown,
+): SerializedInventory {
+  const inventory =
+    value && typeof value === "object"
+      ? (value as Record<string, unknown>)
+      : {};
+  const hotbar = [
+    ...emptySerializedInventorySlots(SAVE_HOTBAR_SLOT_COUNT),
+  ] as (SerializedItemStack | null)[];
+  const backpack = [
+    ...emptySerializedInventorySlots(SAVE_BACKPACK_SLOT_COUNT),
+  ] as (SerializedItemStack | null)[];
+
+  const savedHotbar = Array.isArray(inventory.hotbar) ? inventory.hotbar : [];
+  const savedBackpack = Array.isArray(inventory.backpack)
+    ? inventory.backpack
+    : [];
+
+  if (savedHotbar.length > 0 || savedBackpack.length > 0) {
+    copySerializedSlots(hotbar, savedHotbar);
+    copySerializedSlots(backpack, savedBackpack);
+  } else if (Array.isArray(inventory.slots)) {
+    copySerializedSlots(hotbar, inventory.slots);
+    if (inventory.slots.length > SAVE_HOTBAR_SLOT_COUNT) {
+      copySerializedSlots(
+        backpack,
+        inventory.slots.slice(SAVE_HOTBAR_SLOT_COUNT),
+      );
+    }
+  } else if (Array.isArray(inventory.items)) {
+    for (const item of inventory.items) {
+      const stack = normalizeLegacyInventoryItem(item);
+
+      if (stack) {
+        mergeOrPlaceSerializedStack([hotbar, backpack], stack);
+      }
+    }
+  }
+
+  return {
+    selectedHotbarIndex: selectedHotbarIndexFromInventory(inventory),
+    hotbar,
+    backpack,
   };
 }
 
@@ -679,7 +917,7 @@ export function runtimeStateWithDefaults(
   return {
     worldId,
     player: state?.player ?? { position: null },
-    inventory: state?.inventory ?? emptyInventorySave(),
+    inventory: normalizeSerializedInventory(state?.inventory),
     gameTime: normalizeSerializedGameTimeState(
       (state as { gameTime?: unknown } | null | undefined)?.gameTime,
     ),

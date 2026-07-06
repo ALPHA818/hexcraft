@@ -345,21 +345,18 @@ export class SurvivalController {
     }
 
     const selectedItemId = this.#inventory.selectedItemId();
+    const selectedItem = this.#inventory.selectedItem();
     const material = this.#inventory.selectedPlaceableMaterial();
     const dynamicMaterialId = this.#inventory.selectedDynamicMaterialId();
     const placement = validateBlockPlacement({
       target: this.#target,
       selectedItemId,
+      selectedItem,
       selectedMaterial: material,
       playerPosition: this.#camera.position(),
       world: this.#world,
       mode: this.#mode,
-      inventoryCount:
-        dynamicMaterialId && selectedItemId
-          ? this.#inventory.countItem(selectedItemId)
-          : material === null
-            ? 0
-            : this.#inventory.count(material),
+      selectedStackCount: this.#inventory.selectedStackCount(),
     });
 
     if (!placement.ok) {
@@ -368,20 +365,18 @@ export class SurvivalController {
     }
 
     let consumedItem = false;
-    if (
-      placement.consumeItem &&
-      (dynamicMaterialId && selectedItemId
-        ? !this.#inventory.removeItem(selectedItemId)
-        : !this.#inventory.remove(placement.material))
-    ) {
-      this.#showPlacementFailure({
-        ok: false,
-        reason: "missing_inventory",
-        message: "No blocks left.",
-      });
-      return;
+    if (placement.consumeItem) {
+      if (!selectedItemId || !this.#inventory.consumeSelectedStack()) {
+        this.#showPlacementFailure({
+          ok: false,
+          reason: "missing_inventory",
+          message: "No blocks left.",
+        });
+        return;
+      }
+
+      consumedItem = true;
     }
-    consumedItem = placement.consumeItem;
 
     const update = this.#world.setBlockAsync(
       placement.position,
@@ -389,12 +384,8 @@ export class SurvivalController {
       dynamicMaterialId ?? undefined,
     );
     if (!update) {
-      if (consumedItem) {
-        if (dynamicMaterialId && selectedItemId) {
-          this.#inventory.addItem(selectedItemId);
-        } else {
-          this.#inventory.add(placement.material);
-        }
+      if (consumedItem && selectedItemId) {
+        this.#inventory.restoreSelectedStackItem(selectedItemId);
       }
       this.#showPlacementFailure({
         ok: false,

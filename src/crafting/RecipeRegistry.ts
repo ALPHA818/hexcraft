@@ -2,13 +2,20 @@ import type { Recipe, ShapelessRecipe } from "./RecipeTypes.ts";
 import type { WorkbenchType } from "./WorkbenchTypes.ts";
 
 function shapelessRecipe(
-  recipe: Omit<ShapelessRecipe, "type" | "workbenchType"> &
-    Partial<Pick<ShapelessRecipe, "workbenchType">>,
+  recipe: Omit<
+    ShapelessRecipe,
+    "type" | "workbenchType" | "requiredWorkbench"
+  > &
+    Partial<Pick<ShapelessRecipe, "workbenchType" | "requiredWorkbench">>,
 ): ShapelessRecipe {
+  const requiredWorkbench =
+    recipe.requiredWorkbench ?? recipe.workbenchType ?? "basic";
+
   return {
     type: "shapeless",
-    workbenchType: "basic",
     ...recipe,
+    requiredWorkbench,
+    workbenchType: requiredWorkbench,
   };
 }
 
@@ -61,7 +68,7 @@ export const RECIPE_REGISTRY = [
   shapelessRecipe({
     id: "metal_workbench_iron",
     displayName: "Metal Workbench",
-    workbenchType: "basic",
+    requiredWorkbench: "basic",
     inputs: [
       { itemId: "block:stone", count: 1 },
       { itemId: "material:coal", count: 1 },
@@ -72,7 +79,7 @@ export const RECIPE_REGISTRY = [
   shapelessRecipe({
     id: "metal_workbench_copper",
     displayName: "Metal Workbench",
-    workbenchType: "basic",
+    requiredWorkbench: "basic",
     inputs: [
       { itemId: "block:stone", count: 1 },
       { itemId: "material:coal", count: 1 },
@@ -83,7 +90,7 @@ export const RECIPE_REGISTRY = [
   shapelessRecipe({
     id: "magic_workbench",
     displayName: "Magic Workbench",
-    workbenchType: "basic",
+    requiredWorkbench: "basic",
     inputs: [
       { itemId: "material:crystal", count: 1 },
       { itemId: "block:planks", count: 1 },
@@ -94,7 +101,7 @@ export const RECIPE_REGISTRY = [
   shapelessRecipe({
     id: "organic_workbench",
     displayName: "Organic Workbench",
-    workbenchType: "basic",
+    requiredWorkbench: "basic",
     inputs: [
       { itemId: "block:wood", count: 1 },
       { itemId: "block:leaves", count: 1 },
@@ -105,7 +112,7 @@ export const RECIPE_REGISTRY = [
   shapelessRecipe({
     id: "crystal_workbench",
     displayName: "Crystal Workbench",
-    workbenchType: "basic",
+    requiredWorkbench: "basic",
     inputs: [
       { itemId: "material:crystal", count: 1 },
       { itemId: "block:stone", count: 1 },
@@ -116,7 +123,7 @@ export const RECIPE_REGISTRY = [
   shapelessRecipe({
     id: "chemical_workbench",
     displayName: "Chemical Workbench",
-    workbenchType: "basic",
+    requiredWorkbench: "basic",
     inputs: [
       { itemId: "block:sand", count: 1 },
       { itemId: "material:raw_copper", count: 1 },
@@ -127,7 +134,7 @@ export const RECIPE_REGISTRY = [
   shapelessRecipe({
     id: "assembler_workbench_iron",
     displayName: "Assembler Workbench",
-    workbenchType: "basic",
+    requiredWorkbench: "basic",
     inputs: [
       { itemId: "block:planks", count: 1 },
       { itemId: "material:raw_iron", count: 1 },
@@ -138,7 +145,7 @@ export const RECIPE_REGISTRY = [
   shapelessRecipe({
     id: "assembler_workbench_copper",
     displayName: "Assembler Workbench",
-    workbenchType: "basic",
+    requiredWorkbench: "basic",
     inputs: [
       { itemId: "block:planks", count: 1 },
       { itemId: "material:raw_copper", count: 1 },
@@ -159,7 +166,7 @@ export const RECIPE_REGISTRY = [
   shapelessRecipe({
     id: "forge_station_iron",
     displayName: "Forge Station",
-    workbenchType: "metal",
+    requiredWorkbench: "metal",
     inputs: [
       { itemId: "block:stone", count: 1 },
       { itemId: "material:coal", count: 1 },
@@ -170,7 +177,7 @@ export const RECIPE_REGISTRY = [
   shapelessRecipe({
     id: "forge_station_copper",
     displayName: "Forge Station",
-    workbenchType: "metal",
+    requiredWorkbench: "metal",
     inputs: [
       { itemId: "block:stone", count: 1 },
       { itemId: "material:coal", count: 1 },
@@ -181,7 +188,7 @@ export const RECIPE_REGISTRY = [
   shapelessRecipe({
     id: "crystallizer_station",
     displayName: "Crystallizer",
-    workbenchType: "crystal",
+    requiredWorkbench: "crystal",
     inputs: [
       { itemId: "material:crystal", count: 1 },
       { itemId: "block:stone", count: 1 },
@@ -191,7 +198,7 @@ export const RECIPE_REGISTRY = [
   shapelessRecipe({
     id: "distiller_station",
     displayName: "Distiller",
-    workbenchType: "chemical",
+    requiredWorkbench: "chemical",
     inputs: [
       { itemId: "block:sand", count: 1 },
       { itemId: "material:raw_copper", count: 1 },
@@ -201,7 +208,7 @@ export const RECIPE_REGISTRY = [
   shapelessRecipe({
     id: "stabilizer_station",
     displayName: "Stabilizer",
-    workbenchType: "metal",
+    requiredWorkbench: "metal",
     inputs: [
       { itemId: "material:crystal", count: 1 },
       { itemId: "material:raw_iron", count: 1 },
@@ -212,7 +219,7 @@ export const RECIPE_REGISTRY = [
   shapelessRecipe({
     id: "infuser_station",
     displayName: "Infuser",
-    workbenchType: "magic",
+    requiredWorkbench: "magic",
     inputs: [
       { itemId: "material:crystal", count: 1 },
       { itemId: "material:coal", count: 1 },
@@ -222,7 +229,7 @@ export const RECIPE_REGISTRY = [
   shapelessRecipe({
     id: "assembler_station_iron",
     displayName: "Assembler",
-    workbenchType: "metal",
+    requiredWorkbench: "metal",
     inputs: [
       { itemId: "block:planks", count: 1 },
       { itemId: "material:raw_iron", count: 1 },
@@ -232,7 +239,7 @@ export const RECIPE_REGISTRY = [
   shapelessRecipe({
     id: "assembler_station_copper",
     displayName: "Assembler",
-    workbenchType: "metal",
+    requiredWorkbench: "metal",
     inputs: [
       { itemId: "block:planks", count: 1 },
       { itemId: "material:raw_copper", count: 1 },
@@ -249,12 +256,16 @@ export function recipesForWorkbench(
   workbenchType: WorkbenchType,
 ): readonly Recipe[] {
   return RECIPE_REGISTRY.filter(
-    (recipe) => recipe.workbenchType === workbenchType,
+    (recipe) => recipeRequiredWorkbench(recipe) === workbenchType,
   );
 }
 
 export const recipesForStation = recipesForWorkbench;
 
 export function recipeWorkbenchType(recipe: Recipe): WorkbenchType {
-  return recipe.workbenchType;
+  return recipeRequiredWorkbench(recipe);
+}
+
+export function recipeRequiredWorkbench(recipe: Recipe): WorkbenchType {
+  return recipe.requiredWorkbench ?? recipe.workbenchType;
 }

@@ -29,7 +29,10 @@ function createElementStub(): HTMLElement {
     append: vi.fn(),
     classList: { add: vi.fn(), toggle: vi.fn() },
     replaceChildren: vi.fn(),
+    setAttribute: vi.fn(),
     style: { setProperty: vi.fn() },
+    title: "",
+    tabIndex: 0,
   } as unknown as HTMLElement;
 }
 
@@ -304,9 +307,137 @@ describe("survival inventory drops", () => {
     );
   });
 
-  it("opening inventory releases pointer lock", () => {
+  it("filter blocks shows block stacks from the backpack", () => {
+    stubInventoryDocument();
+    const inventory = new Inventory("creative");
+
+    inventory.setBackpackSlot(0, createItemStack("block:dirt", 4));
+    inventory.setBackpackSlot(1, createItemStack("tool:pickaxe"));
+    inventory.setBackpackSlot(2, createItemStack("material:coal", 2));
+    inventory.setBackpackFilter("blocks");
+
+    expect(
+      inventory.visibleBackpackStacks().map(({ stack }) => stack.itemId),
+    ).toEqual(["block:dirt"]);
+  });
+
+  it("filter tools shows tool stacks from the backpack", () => {
+    stubInventoryDocument();
+    const inventory = new Inventory("creative");
+
+    inventory.setBackpackSlot(0, createItemStack("block:stone", 4));
+    inventory.setBackpackSlot(1, createItemStack("tool:axe"));
+    inventory.setBackpackSlot(2, createItemStack("material:stick", 8));
+    inventory.setBackpackFilter("tools");
+
+    expect(
+      inventory.visibleBackpackStacks().map(({ stack }) => stack.itemId),
+    ).toEqual(["tool:axe"]);
+  });
+
+  it("filter generated materials uses dynamic material items", () => {
+    stubInventoryDocument();
+    const registry = materialRegistry();
+    const material = generatedMaterial("generated:filter-crystal", 82);
+    const generatedItemId = itemIdForMaterial(material.id);
+    const inventory = new Inventory("creative", () => {}, registry);
+
+    registry.registerGeneratedMaterial(material);
+    inventory.setBackpackSlot(0, createItemStack("material:crystal", 1));
+    inventory.setBackpackSlot(1, { itemId: generatedItemId, count: 3 });
+    inventory.setBackpackFilter("generated-materials");
+
+    expect(
+      inventory.visibleBackpackStacks().map(({ stack }) => stack.itemId),
+    ).toEqual([generatedItemId]);
+  });
+
+  it("searches backpack items by name and id", () => {
+    stubInventoryDocument();
+    const inventory = new Inventory("creative");
+
+    inventory.setBackpackSlot(0, createItemStack("material:coal", 6));
+    inventory.setBackpackSlot(1, createItemStack("material:raw_iron", 2));
+
+    inventory.setBackpackSearch("raw iron");
+    expect(
+      inventory.visibleBackpackStacks().map(({ stack }) => stack.itemId),
+    ).toEqual(["material:raw_iron"]);
+
+    inventory.setBackpackSearch("material:coal");
+    expect(
+      inventory.visibleBackpackStacks().map(({ stack }) => stack.itemId),
+    ).toEqual(["material:coal"]);
+  });
+
+  it("sorts backpack stacks by name", () => {
+    stubInventoryDocument();
+    const inventory = new Inventory("creative");
+
+    inventory.setBackpackSlot(0, createItemStack("material:raw_iron", 1));
+    inventory.setBackpackSlot(1, createItemStack("block:dirt", 1));
+    inventory.setBackpackSlot(2, createItemStack("material:coal", 1));
+
+    inventory.setBackpackSortMode("name");
+    expect(inventory.sortBackpack()).toBe(true);
+
+    expect(inventory.backpackSlot(0)?.itemId).toBe("material:coal");
+    expect(inventory.backpackSlot(1)?.itemId).toBe("block:dirt");
+    expect(inventory.backpackSlot(2)?.itemId).toBe("material:raw_iron");
+  });
+
+  it("sorts backpack stacks by count", () => {
+    stubInventoryDocument();
+    const inventory = new Inventory("creative");
+
+    inventory.setBackpackSlot(0, createItemStack("block:dirt", 2));
+    inventory.setBackpackSlot(1, createItemStack("material:coal", 12));
+    inventory.setBackpackSlot(2, createItemStack("material:stick", 5));
+
+    inventory.setBackpackSortMode("count");
+    expect(inventory.sortBackpack()).toBe(true);
+
+    expect(inventory.backpackSlot(0)).toMatchObject({
+      itemId: "material:coal",
+      count: 12,
+    });
+    expect(inventory.backpackSlot(1)).toMatchObject({
+      itemId: "material:stick",
+      count: 5,
+    });
+    expect(inventory.backpackSlot(2)).toMatchObject({
+      itemId: "block:dirt",
+      count: 2,
+    });
+  });
+
+  it("sorting the backpack leaves the hotbar unchanged", () => {
+    stubInventoryDocument();
+    const inventory = new Inventory("creative");
+
+    inventory.setSlot(0, createItemStack("block:stone", 9));
+    inventory.setSlot(1, createItemStack("tool:pickaxe"));
+    inventory.setBackpackSlot(0, createItemStack("material:raw_iron", 1));
+    inventory.setBackpackSlot(1, createItemStack("material:coal", 1));
+
+    inventory.setBackpackSortMode("name");
+    inventory.sortBackpack();
+
+    expect(inventory.slot(0)).toMatchObject({
+      itemId: "block:stone",
+      count: 9,
+    });
+    expect(inventory.slot(1)).toMatchObject({
+      itemId: "tool:pickaxe",
+      count: 1,
+    });
+    expect(inventory.backpackSlot(0)?.itemId).toBe("material:coal");
+  });
+
+  it("opening inventory notifies panel state without owning pointer lock", () => {
     const elements = stubInventoryDocument();
-    const inventory = new Inventory("survival");
+    const onOpenChange = vi.fn();
+    const inventory = new Inventory("survival", onOpenChange);
 
     Object.defineProperty(document, "pointerLockElement", {
       configurable: true,
@@ -315,7 +446,8 @@ describe("survival inventory drops", () => {
 
     inventory.toggle();
 
-    expect(document.exitPointerLock).toHaveBeenCalledOnce();
+    expect(document.exitPointerLock).not.toHaveBeenCalled();
+    expect(onOpenChange).toHaveBeenLastCalledWith(true);
     expect(elements.panel.hidden).toBe(false);
   });
 
@@ -354,11 +486,59 @@ describe("survival inventory drops", () => {
     inventory.setBackpackSlot(0, createItemStack("block:dirt", 1));
 
     expect(inventory.selectedItemId()).toBeNull();
+    expect(inventory.selectedStackCount()).toBe(0);
     expect(inventory.selectedPlaceableMaterial()).toBeNull();
 
     inventory.setSlot(0, createItemStack("tool:pickaxe", 1));
 
     expect(inventory.selectedItemId()).toBe("tool:pickaxe");
+  });
+
+  it("consumes only the selected hotbar stack for placement", () => {
+    stubInventoryDocument();
+    const inventory = new Inventory("survival");
+
+    inventory.setSlot(4, createItemStack("block:dirt", 2));
+    inventory.setBackpackSlot(0, createItemStack("block:dirt", 9));
+    inventory.select(4);
+
+    expect(inventory.consumeSelectedStack()).toBe(true);
+    expect(inventory.slot(4)).toMatchObject({
+      itemId: "block:dirt",
+      count: 1,
+    });
+    expect(inventory.backpackSlot(0)).toMatchObject({
+      itemId: "block:dirt",
+      count: 9,
+    });
+  });
+
+  it("does not consume selected stacks in creative placement", () => {
+    stubInventoryDocument();
+    const inventory = new Inventory("creative");
+
+    inventory.setSlot(0, createItemStack("block:stone", 3));
+
+    expect(inventory.consumeSelectedStack()).toBe(true);
+    expect(inventory.slot(0)).toMatchObject({
+      itemId: "block:stone",
+      count: 3,
+    });
+  });
+
+  it("can restore a consumed selected placement stack", () => {
+    stubInventoryDocument();
+    const inventory = new Inventory("survival");
+
+    inventory.setSlot(0, createItemStack("block:planks", 1));
+
+    expect(inventory.consumeSelectedStack()).toBe(true);
+    expect(inventory.slot(0)).toBeNull();
+    expect(inventory.restoreSelectedStackItem("block:planks")).toBe(true);
+    expect(inventory.slot(0)).toMatchObject({
+      itemId: "block:planks",
+      count: 1,
+    });
   });
 
   it("decreases tool durability and removes broken tools in survival", () => {

@@ -23,6 +23,13 @@ describe("game time", () => {
     expect(time.dayNumber).toBe(8);
   });
 
+  it("tracks total elapsed world time across saved days", () => {
+    const time = new GameTime({ timeOfDay: 0.25, dayNumber: 3 });
+
+    expect(time.timeSeconds).toBeCloseTo(DAY_NIGHT_CYCLE_SECONDS * 0.25);
+    expect(time.totalTimeSeconds).toBeCloseTo(DAY_NIGHT_CYCLE_SECONDS * 2.25);
+  });
+
   it("pause stops time", () => {
     const time = new GameTime({ timeOfDay: 0.4, dayNumber: 1 });
 

@@ -29,6 +29,17 @@ describe("debug overlay", () => {
       level: 42,
       biome: "forest",
       gameMode: "creative",
+      weather: {
+        cellX: 4,
+        cellZ: -2,
+        timeBucket: 3,
+        cellWeather: "rain",
+        localWeather: "fog",
+        localIntensity: 0.62,
+        wind: [0.72, -0.31],
+        cloudSample: [123.45, -67.89],
+        particleCount: 144,
+      },
     });
 
     expect(rows).toContainEqual(["FPS", "60"]);
@@ -41,6 +52,14 @@ describe("debug overlay", () => {
     expect(rows).toContainEqual(["Audio update ms", "0.2"]);
     expect(rows).toContainEqual(["Axial", "q 2, r -3"]);
     expect(rows).toContainEqual(["Biome", "forest"]);
+    expect(rows).toContainEqual(["Weather zone", "fog 0.62 in cell 4, -2"]);
+    expect(rows).toContainEqual(["Weather cell", "4, -2 @ 3"]);
+    expect(rows).toContainEqual(["Cell weather", "rain"]);
+    expect(rows).toContainEqual(["Local weather", "fog"]);
+    expect(rows).toContainEqual(["Local intensity", "0.62"]);
+    expect(rows).toContainEqual(["Wind direction", "0.72, -0.31"]);
+    expect(rows).toContainEqual(["Cloud sample", "123.5, -67.9"]);
+    expect(rows).toContainEqual(["Weather particles", "144"]);
     expect(rows).toContainEqual(["Loaded chunks", "25"]);
     expect(rows).toContainEqual(["Mesh faces", "12,345"]);
     expect(rows).toContainEqual(["Triangles", "24,690"]);

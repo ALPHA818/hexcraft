@@ -4,6 +4,10 @@ import { Inventory } from "../game/Inventory.ts";
 import type { WorkbenchInventory } from "../game/WorkbenchController.ts";
 import { WorkbenchController } from "../game/WorkbenchController.ts";
 import { MaterialWorldController } from "../game/MaterialWorldController.ts";
+import type {
+  MaterialDefinition,
+  MaterialStats,
+} from "../materials/MaterialTypes.ts";
 import {
   itemIdForMaterial,
   modifiedToolItemId,
@@ -151,6 +155,38 @@ class FakeElement {
   focus(): void {}
 }
 
+const BASE_MATERIAL_STATS: MaterialStats = {
+  stability: 88,
+  hardness: 96,
+  density: 76,
+  heat: 20,
+  conductivity: 64,
+  toxicity: 0,
+  radioactivity: 0,
+  magic: 0,
+  organic: 0,
+  metal: 96,
+  crystal: 10,
+  gas: 0,
+  liquid: 0,
+};
+
+function generatedWorkbenchMaterial(
+  id = "generated:locked-alloy",
+): MaterialDefinition {
+  return {
+    id,
+    name: "Locked Alloy",
+    generation: 1,
+    parents: ["element:iron", "element:carbon"],
+    rarity: "rare",
+    ...BASE_MATERIAL_STATS,
+    tags: ["metal", "alloy", "forged"],
+    requiredResearchTier: "metallurgical",
+    discoveredAt: 1,
+  };
+}
+
 function installFakeDocument(): FakeElement {
   const root = new FakeElement();
   const body = new FakeElement();
@@ -275,6 +311,44 @@ describe("workbench crafting", () => {
     ).toBe(false);
   });
 
+  it("metal recipes are hidden from basic workbenches and require metal workbench", () => {
+    const controller = controllerFor();
+
+    expect(
+      controller
+        .recipesForWorkbench("basic")
+        .some((recipe) => recipe.id === "forge_station_iron"),
+    ).toBe(false);
+    expect(
+      controller
+        .recipesForWorkbench("metal")
+        .some((recipe) => recipe.id === "forge_station_iron"),
+    ).toBe(true);
+    expect(controller.craft("forge_station_iron", "basic")).toMatchObject({
+      ok: false,
+      reason: "wrong_workbench",
+    });
+  });
+
+  it("magic recipes are hidden from basic workbenches and require magic workbench", () => {
+    const controller = controllerFor();
+
+    expect(
+      controller
+        .recipesForWorkbench("basic")
+        .some((recipe) => recipe.id === "infuser_station"),
+    ).toBe(false);
+    expect(
+      controller
+        .recipesForWorkbench("magic")
+        .some((recipe) => recipe.id === "infuser_station"),
+    ).toBe(true);
+    expect(controller.craft("infuser_station", "basic")).toMatchObject({
+      ok: false,
+      reason: "wrong_workbench",
+    });
+  });
+
   it("can craft material tool upgrades from the assembler", () => {
     const inventory = new TestInventory();
     const controller = controllerFor(inventory);
@@ -293,6 +367,58 @@ describe("workbench crafting", () => {
     expect(inventory.counts.get("tool:pickaxe")).toBe(0);
     expect(inventory.counts.get(ironItemId)).toBe(0);
     expect(inventory.counts.get(modifiedToolId)).toBe(1);
+  });
+
+  it("assembler recipes cannot be crafted at another station", () => {
+    const inventory = new TestInventory();
+    const controller = controllerFor(inventory);
+    const ironItemId = itemIdForMaterial("element:iron");
+
+    inventory.set("tool:pickaxe", 1);
+    inventory.set(ironItemId, 1);
+
+    expect(
+      controller.craft(
+        modifiedToolRecipeId("tool:pickaxe", "element:iron"),
+        "basic",
+      ),
+    ).toMatchObject({
+      ok: false,
+      reason: "wrong_workbench",
+    });
+  });
+
+  it("research-gated material upgrade recipes unlock with the required tier", () => {
+    const inventory = new TestInventory();
+    const materialWorld = new MaterialWorldController({ mode: "survival" });
+    const material = generatedWorkbenchMaterial();
+    const materialItemId = itemIdForMaterial(material.id);
+    const recipeId = modifiedToolRecipeId("tool:pickaxe", material.id);
+    const controller = new WorkbenchController({
+      inventory,
+      materialWorld,
+    });
+
+    materialWorld.registry.registerGeneratedMaterial(material);
+    inventory.set("tool:pickaxe", 1);
+    inventory.set(materialItemId, 1);
+
+    expect(
+      controller
+        .recipesForWorkbench("assembler")
+        .some((recipe) => recipe.id === recipeId),
+    ).toBe(false);
+    expect(controller.craft(recipeId, "assembler")).toMatchObject({
+      ok: false,
+      reason: "research_locked",
+    });
+
+    expect(materialWorld.unlockResearchTier("metallurgical")).toBe(true);
+    expect(
+      controller
+        .recipesForWorkbench("assembler")
+        .some((recipe) => recipe.id === recipeId),
+    ).toBe(true);
   });
 
   it("workbench panel displays recipes for the selected workbench", () => {
@@ -323,6 +449,31 @@ describe("workbench crafting", () => {
     expect(findByText(root, "Metal Workbench").disabled).toBe(true);
     expect(canOpenWorkbenchTestingPanel("survival", false)).toBe(false);
     expect(canOpenWorkbenchTestingPanel("creative", false)).toBe(true);
+  });
+
+  it("creative debug-open panels can browse advanced station recipes", () => {
+    const root = installFakeDocument();
+    const panel = new WorkbenchPanel(root as unknown as HTMLElement, {
+      controller: controllerFor(new TestInventory(true)),
+    });
+
+    panel.show("metal", false);
+
+    expect(findByText(root, "Forge Station")).toBeDefined();
+    expect(findByText(root, "Basic Workbench").disabled).toBe(false);
+  });
+
+  it("survival placed station panels stay locked to that station", () => {
+    const root = installFakeDocument();
+    const panel = new WorkbenchPanel(root as unknown as HTMLElement, {
+      controller: controllerFor(new TestInventory(false)),
+    });
+
+    panel.show("metal", true);
+
+    expect(findByText(root, "Forge Station")).toBeDefined();
+    expect(findByText(root, "Basic Workbench").disabled).toBe(true);
+    expect(findByText(root, "Magic Workbench").disabled).toBe(true);
   });
 
   it("element combiner workbench opens the material combiner handoff", () => {

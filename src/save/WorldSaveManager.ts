@@ -11,6 +11,7 @@ import {
   emptyMaterialCodexSave,
   emptyRuntimeStateSave,
   metadataFromSettings,
+  normalizeSerializedInventory,
   runtimeStateWithDefaults,
   settingsFromMetadata,
   terrainEditChunkId,
@@ -149,7 +150,7 @@ export class WorldSaveManager {
     const runtime: WorldRuntimeStateSave = {
       worldId: metadata.id,
       player: payload.player,
-      inventory: payload.inventory,
+      inventory: normalizeSerializedInventory(payload.inventory),
       gameTime: runtimeStateWithDefaults(metadata.id, {
         gameTime: payload.gameTime,
       }).gameTime,
