@@ -9,5 +9,13 @@
 - Add tests for deterministic systems.
 - Make small reviewable changes.
 - Do not hardcode infinite material combinations.
+- Inventory is real storage: 9 hotbar slots plus 27 backpack slots.
+- Creative items come from Creative Catalog/debug grants, not permanent inventory.
+- `ITEM_DEFINITIONS` is a registry, never an owned item list.
+- Crafting belongs in workbenches and `WorkbenchController`, not inventory UI.
+- Material combining belongs in element combiner/stations, not generic crafting UI.
+- Save/load owns persistence for inventory, materials, storage, equipment, progression, and terrain edits.
+- Sky/weather must be world-position based.
+- Do not reintroduce camera-bolted weather overlays.
 - Never ask for permission unless a required security or system approval makes it unavoidable.
 - Always analyze the problem before making a fix.

@@ -7,6 +7,7 @@ import { WorldAtmosphere } from "./WorldAtmosphere.ts";
 import { WorldWeatherParticles } from "./WorldWeatherParticles.ts";
 import type { TerrainBiome } from "../geometry/terrainChunk.ts";
 import type { WeatherKind } from "./Atmosphere.ts";
+import { biomeWeatherWeightsFor } from "../world/Biomes.ts";
 
 function countCellWeather(
   biome: TerrainBiome,
@@ -201,6 +202,16 @@ describe("world-space atmosphere", () => {
   });
 
   it("desert and badlands cells have a higher sandstorm chance", () => {
+    expect(biomeWeatherWeightsFor("desert").sandstorm).toBeGreaterThan(
+      biomeWeatherWeightsFor("grassland").sandstorm,
+    );
+    expect(biomeWeatherWeightsFor("badlands").sandstorm).toBeGreaterThan(
+      biomeWeatherWeightsFor("grassland").sandstorm,
+    );
+    expect(biomeWeatherWeightsFor("desert").rain).toBeLessThan(
+      biomeWeatherWeightsFor("grassland").rain,
+    );
+
     const desert = countCellWeather("desert", "sandstorm", {
       seed: 918,
       baseWeather: "rain",
@@ -217,6 +228,16 @@ describe("world-space atmosphere", () => {
   });
 
   it("snow biomes have a higher snow chance", () => {
+    expect(biomeWeatherWeightsFor("snow").snow).toBeGreaterThan(
+      biomeWeatherWeightsFor("grassland").snow,
+    );
+    expect(biomeWeatherWeightsFor("tundra").snow).toBeGreaterThan(
+      biomeWeatherWeightsFor("grassland").snow,
+    );
+    expect(biomeWeatherWeightsFor("alpine").snow).toBeGreaterThan(
+      biomeWeatherWeightsFor("grassland").snow,
+    );
+
     const snow = countCellWeather("snow", "snow", {
       seed: 314,
       baseWeather: "rain",
@@ -230,18 +251,33 @@ describe("world-space atmosphere", () => {
     expect(snow).toBeGreaterThan(120);
   });
 
-  it("swamp cells have a higher fog chance", () => {
-    const swamp = countCellWeather("swamp", "fog", {
+  it("swamp cells have higher fog and rain weighting", () => {
+    expect(biomeWeatherWeightsFor("swamp").fog).toBeGreaterThan(
+      biomeWeatherWeightsFor("grassland").fog,
+    );
+    expect(biomeWeatherWeightsFor("swamp").rain).toBeGreaterThan(
+      biomeWeatherWeightsFor("grassland").rain,
+    );
+
+    const swampFog = countCellWeather("swamp", "fog", {
       seed: 271,
       baseWeather: "cloudy",
     });
-    const grassland = countCellWeather("grassland", "fog", {
+    const swampRain = countCellWeather("swamp", "rain", {
+      seed: 271,
+      baseWeather: "cloudy",
+    });
+    const grasslandFog = countCellWeather("grassland", "fog", {
+      seed: 271,
+      baseWeather: "cloudy",
+    });
+    const grasslandRain = countCellWeather("grassland", "rain", {
       seed: 271,
       baseWeather: "cloudy",
     });
 
-    expect(swamp).toBeGreaterThan(grassland);
-    expect(swamp).toBeGreaterThan(180);
+    expect(swampFog).toBeGreaterThan(grasslandFog);
+    expect(swampFog + swampRain).toBeGreaterThan(grasslandFog + grasslandRain);
   });
 
   it("adjacent weather cells blend across zone boundaries", () => {
@@ -301,6 +337,42 @@ describe("world-space atmosphere", () => {
     expect(rainParticle?.worldX).toBeLessThan(observerPosition[0] + 32);
     expect(snowParticle?.worldZ).toBeGreaterThan(observerPosition[2] - 32);
     expect(snowParticle?.worldZ).toBeLessThan(observerPosition[2] + 32);
+  });
+
+  it("particle generation is deterministic for the same seed and input", () => {
+    const first = new WorldWeatherParticles(99, 24);
+    const second = new WorldWeatherParticles(99, 24);
+    const input = {
+      deltaSeconds: 1 / 60,
+      timeSeconds: 88,
+      weather: "rain" as const,
+      intensity: 0.8,
+      observerPosition: [128, 18, -256] as const,
+    };
+
+    first.update(input);
+    second.update(input);
+
+    expect(second.snapshot()).toEqual(first.snapshot());
+  });
+
+  it("rain, snow, and sandstorm produce world particles", () => {
+    for (const weather of ["rain", "snow", "sandstorm"] as const) {
+      const particles = new WorldWeatherParticles(32, 20);
+
+      particles.update({
+        deltaSeconds: 1 / 60,
+        timeSeconds: 42,
+        weather,
+        intensity: 0.9,
+        observerPosition: [64, 22, 128],
+      });
+
+      expect(particles.activeParticleCount()).toBeGreaterThan(0);
+      expect(
+        particles.snapshot().every((particle) => particle.kind === weather),
+      ).toBe(true);
+    }
   });
 
   it("camera movement alone does not regenerate camera-local weather", () => {

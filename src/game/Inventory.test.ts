@@ -2,7 +2,6 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { TerrainMaterial } from "../geometry/terrainChunk.ts";
 import {
-  ITEM_DEFINITIONS,
   itemDefinitionFor,
   itemIdForMaterial,
   modifiedToolItemId,
@@ -11,6 +10,7 @@ import { createItemStack } from "../items/ItemStack.ts";
 import { combineMaterials } from "../materials/MaterialCombiner.ts";
 import { MaterialRegistry } from "../materials/MaterialRegistry.ts";
 import {
+  materialBlockTintCssForVisuals,
   materialVisualsForMaterial,
   UNKNOWN_MATERIAL_VISUALS,
 } from "../materials/MaterialVisuals.ts";
@@ -21,6 +21,7 @@ import {
   inventoryVisualsForItem,
   minedDrop,
 } from "./Inventory.ts";
+import { applyMaterialDropRules } from "./MaterialDropRules.ts";
 import { MaterialStorage } from "./MaterialStorage.ts";
 
 function createElementStub(): HTMLElement {
@@ -211,10 +212,9 @@ describe("survival inventory drops", () => {
     stubInventoryDocument();
     const inventory = new Inventory("creative");
 
-    expect(inventory.creativeCatalogItems()).toHaveLength(
-      ITEM_DEFINITIONS.length,
-    );
     expect(inventory.count(TerrainMaterial.Dirt)).toBe(0);
+    expect(inventory.count(TerrainMaterial.Stone)).toBe(0);
+    expect(inventory.count(TerrainMaterial.Wood)).toBe(0);
     expect(inventory.countItem("tool:pickaxe")).toBe(0);
   });
 
@@ -467,6 +467,13 @@ describe("survival inventory drops", () => {
     stubInventoryDocument();
     const inventory = new Inventory("survival");
 
+    expect(inventory.selectedItemId()).toBeNull();
+    expect(inventory.selectedPlaceableMaterial()).toBeNull();
+    expect(inventory.selectedTool().kind).toBe("hand");
+
+    inventory.setSlot(1, createItemStack("tool:pickaxe", 1));
+    inventory.select(1);
+
     expect(inventory.selectedItemId()).toBe("tool:pickaxe");
     expect(inventory.selectedPlaceableMaterial()).toBeNull();
     expect(inventory.selectedTool().kind).toBe("pickaxe");
@@ -492,6 +499,25 @@ describe("survival inventory drops", () => {
     inventory.setSlot(0, createItemStack("tool:pickaxe", 1));
 
     expect(inventory.selectedItemId()).toBe("tool:pickaxe");
+  });
+
+  it("backpack blocks cannot be placed until moved to the hotbar", () => {
+    stubInventoryDocument();
+    const inventory = new Inventory("creative");
+
+    inventory.setBackpackSlot(0, createItemStack("block:dirt", 1));
+
+    expect(inventory.selectedItemId()).toBeNull();
+    expect(inventory.selectedPlaceableMaterial()).toBeNull();
+
+    expect(
+      inventory.interactWithSlot("backpack", 0, {
+        shiftKey: true,
+      }),
+    ).toBe(true);
+
+    expect(inventory.selectedItemId()).toBe("block:dirt");
+    expect(inventory.selectedPlaceableMaterial()).toBe(TerrainMaterial.Dirt);
   });
 
   it("consumes only the selected hotbar stack for placement", () => {
@@ -545,6 +571,7 @@ describe("survival inventory drops", () => {
     stubInventoryDocument();
     const inventory = new Inventory("survival");
 
+    inventory.setSlot(1, createItemStack("tool:pickaxe"));
     inventory.select(1);
     const startingDurability = inventory.selectedStack()?.durability ?? 0;
 
@@ -574,6 +601,7 @@ describe("survival inventory drops", () => {
     stubInventoryDocument();
     const source = new Inventory("survival");
 
+    source.setSlot(0, createItemStack("tool:pickaxe"));
     source.add(TerrainMaterial.Wood, 3);
     source.addItem("material:raw_iron", 2);
     source.select(0);
@@ -612,7 +640,7 @@ describe("survival inventory drops", () => {
     stubInventoryDocument();
     const inventory = new Inventory("survival");
 
-    expect(inventory.addItem("tool:shears", 8)).toBe(true);
+    expect(inventory.addItem("tool:shears", 11)).toBe(true);
 
     expect(
       inventory.exportState().hotbar?.filter((slot) => slot !== null),
@@ -625,11 +653,39 @@ describe("survival inventory drops", () => {
     stubInventoryDocument();
     const inventory = new Inventory("survival");
 
-    inventory.addItem("tool:shears", 8);
+    inventory.addItem("tool:shears", 11);
 
-    expect(inventory.removeItem("tool:shears", 7)).toBe(true);
+    expect(inventory.removeItem("tool:shears", 10)).toBe(true);
     expect(inventory.countItem("tool:shears")).toBe(1);
     expect(inventory.backpackSlot(1)?.itemId).toBe("tool:shears");
+  });
+
+  it("creative addItem is not a catalog shortcut", () => {
+    stubInventoryDocument();
+    const inventory = new Inventory("creative");
+
+    expect(inventory.addItem("block:dirt", 64)).toBe(false);
+    expect(inventory.count(TerrainMaterial.Dirt)).toBe(0);
+    expect(inventory.grantItem("block:dirt", 64)).toBe(true);
+    expect(inventory.count(TerrainMaterial.Dirt)).toBe(64);
+  });
+
+  it("survival mining adds normal drops into hotbar or backpack slots", () => {
+    stubInventoryDocument();
+    const inventory = new Inventory("survival");
+
+    const result = applyMaterialDropRules(
+      TerrainMaterial.Stone,
+      inventory,
+      null,
+    );
+
+    expect(result.normalDropCount).toBe(1);
+    expect(inventory.count(TerrainMaterial.Stone)).toBe(1);
+    expect(inventory.slot(0)).toMatchObject({
+      itemId: "block:stone",
+      count: 1,
+    });
   });
 
   it("moves a stack from backpack to hotbar", () => {
@@ -867,7 +923,7 @@ describe("survival inventory drops", () => {
     expect(elements.panel.hidden).toBe(true);
   });
 
-  it("old save with slots migrates into the new hotbar", () => {
+  it("old save with slots migrates into hotbar and backpack", () => {
     stubInventoryDocument();
     const inventory = new Inventory("creative");
 
@@ -876,6 +932,14 @@ describe("survival inventory drops", () => {
       slots: [
         { itemId: "block:dirt", count: 5 },
         { itemId: "tool:pickaxe", count: 1 },
+        { itemId: "block:wood", count: 3 },
+        { itemId: "block:stone", count: 4 },
+        { itemId: "block:sand", count: 5 },
+        { itemId: "material:coal", count: 6 },
+        { itemId: "block:planks", count: 7 },
+        { itemId: "material:stick", count: 8 },
+        { itemId: "material:raw_iron", count: 9 },
+        { itemId: "material:raw_copper", count: 10 },
       ],
     });
 
@@ -885,9 +949,10 @@ describe("survival inventory drops", () => {
       count: 5,
     });
     expect(inventory.selectedItemId()).toBe("tool:pickaxe");
-    expect(inventory.exportState().backpack).toEqual(
-      Array.from({ length: 27 }, () => null),
-    );
+    expect(inventory.backpackSlot(0)).toMatchObject({
+      itemId: "material:raw_copper",
+      count: 10,
+    });
   });
 
   it("old save with terrain material counts migrates safely", () => {
@@ -975,6 +1040,76 @@ describe("survival inventory drops", () => {
     );
   });
 
+  it("moves generated material from storage back to inventory", () => {
+    stubInventoryDocument();
+    const registry = materialRegistry();
+    const material = generatedMaterial("generated:stored-return", 82);
+    const storage = new MaterialStorage();
+    const onStorageChanged = vi.fn();
+
+    registry.registerGeneratedMaterial(material);
+    storage.addMaterial(material.id, 9);
+    const inventory = new Inventory(
+      "survival",
+      () => {},
+      registry,
+      storage,
+      onStorageChanged,
+    );
+    const itemId = itemIdForMaterial(material.id);
+
+    expect(inventory.withdrawStoredMaterial(material.id, 4)).toBe(4);
+    expect(inventory.countItem(itemId)).toBe(4);
+    expect(storage.count(material.id)).toBe(5);
+    expect(onStorageChanged).toHaveBeenCalledOnce();
+  });
+
+  it("bulk stores only generated material items", () => {
+    stubInventoryDocument();
+    const registry = materialRegistry();
+    const stored = generatedMaterial("generated:bulk-stored", 82);
+    const skipped = generatedMaterial("generated:bulk-skipped", 82);
+    const storage = new MaterialStorage();
+    const onStorageChanged = vi.fn();
+
+    registry.registerGeneratedMaterial(stored);
+    registry.registerGeneratedMaterial(skipped);
+    const inventory = new Inventory(
+      "survival",
+      () => {},
+      registry,
+      storage,
+      onStorageChanged,
+    );
+    const storedItemId = itemIdForMaterial(stored.id);
+    const skippedItemId = itemIdForMaterial(skipped.id);
+
+    expect(inventory.addItem(storedItemId, 3)).toBe(true);
+    expect(inventory.addItem(skippedItemId, 2)).toBe(true);
+    expect(inventory.addItem("material:coal", 5)).toBe(true);
+    expect(inventory.addItem("block:dirt", 4)).toBe(true);
+    expect(inventory.addItem("tool:pickaxe", 1)).toBe(true);
+
+    expect(
+      inventory.storeGeneratedMaterialItems(
+        (materialId) => materialId === stored.id,
+      ),
+    ).toBe(3);
+    expect(storage.count(stored.id)).toBe(3);
+    expect(storage.count(skipped.id)).toBe(0);
+    expect(inventory.countItem(storedItemId)).toBe(0);
+    expect(inventory.countItem(skippedItemId)).toBe(2);
+    expect(inventory.countItem("material:coal")).toBe(5);
+    expect(inventory.countItem("block:dirt")).toBe(4);
+    expect(inventory.countItem("tool:pickaxe")).toBe(1);
+    expect(onStorageChanged).toHaveBeenCalledOnce();
+
+    expect(inventory.storeGeneratedMaterialItems()).toBe(2);
+    expect(storage.count(skipped.id)).toBe(2);
+    expect(inventory.countItem(skippedItemId)).toBe(0);
+    expect(inventory.countItem("material:coal")).toBe(5);
+  });
+
   it("renders generated material item swatches from visual data", () => {
     const registry = materialRegistry();
     const material = generatedMaterial("generated:visual-block", 82);
@@ -997,6 +1132,10 @@ describe("survival inventory drops", () => {
     expect(element.style.setProperty).toHaveBeenCalledWith(
       "--item-accent-color",
       expected.accentColor,
+    );
+    expect(element.style.setProperty).toHaveBeenCalledWith(
+      "--item-block-tint",
+      materialBlockTintCssForVisuals(expected),
     );
   });
 
@@ -1042,6 +1181,10 @@ describe("survival inventory drops", () => {
     expect(element.style.setProperty).toHaveBeenCalledWith(
       "--item-accent-color",
       UNKNOWN_MATERIAL_VISUALS.accentColor,
+    );
+    expect(element.style.setProperty).toHaveBeenCalledWith(
+      "--item-block-tint",
+      materialBlockTintCssForVisuals(UNKNOWN_MATERIAL_VISUALS),
     );
   });
 
@@ -1121,6 +1264,30 @@ describe("survival inventory drops", () => {
 
     expect(target.exportState()).toEqual(state);
     expect(target.countItem(itemId)).toBe(7);
+  });
+
+  it("can save and load modified tool item ids", () => {
+    stubInventoryDocument();
+    const registry = materialRegistry();
+    const itemId = modifiedToolItemId("tool:pickaxe", "element:iron");
+    const source = new Inventory("survival", () => {}, registry);
+
+    source.setBackpackSlot(0, {
+      itemId,
+      count: 1,
+      durability: 33,
+    });
+
+    const state = source.exportState();
+    const target = new Inventory("survival", () => {}, registry);
+
+    target.importState(state);
+
+    expect(target.backpackSlot(0)).toEqual({
+      itemId,
+      count: 1,
+      durability: 33,
+    });
   });
 
   it("does not expose crafting methods on inventory", () => {

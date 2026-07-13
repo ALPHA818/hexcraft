@@ -11,6 +11,7 @@ import {
   BLOCK_PLACEMENT_REACH,
   type BlockPlacementInput,
   type BlockPlacementWorld,
+  placedBlockInteractionForTarget,
   validateMaterialStationInteraction,
   validateWorkbenchInteraction,
   validateBlockPlacement,
@@ -311,57 +312,119 @@ describe("block placement rules", () => {
   });
 
   it("interacts with workbench blocks", () => {
-    expect(
-      validateWorkbenchInteraction({
-        target: {
-          voxel: { q: 1, r: 0, level: 2 },
-          material: TerrainMaterial.BasicWorkbench,
-          distance: 3,
-        },
-      }),
-    ).toMatchObject({
-      ok: true,
-      workbenchType: "basic",
-      position: { q: 1, r: 0, level: 2 },
-    });
-    expect(
-      validateWorkbenchInteraction({
-        target: {
-          voxel: { q: 1, r: 0, level: 2 },
-          material: TerrainMaterial.AssemblerWorkbench,
-          distance: 3,
-        },
-      }),
-    ).toMatchObject({
-      ok: true,
-      workbenchType: "assembler",
-    });
+    const workbenches = [
+      [TerrainMaterial.BasicWorkbench, "basic"],
+      [TerrainMaterial.MetalWorkbench, "metal"],
+      [TerrainMaterial.MagicWorkbench, "magic"],
+      [TerrainMaterial.OrganicWorkbench, "organic"],
+      [TerrainMaterial.CrystalWorkbench, "crystal"],
+      [TerrainMaterial.ChemicalWorkbench, "chemical"],
+      [TerrainMaterial.AssemblerWorkbench, "assembler"],
+    ] as const;
+
+    for (const [material, workbenchType] of workbenches) {
+      expect(
+        validateWorkbenchInteraction({
+          target: {
+            voxel: { q: 1, r: 0, level: 2 },
+            material,
+            distance: 3,
+          },
+        }),
+      ).toMatchObject({
+        ok: true,
+        workbenchType,
+        position: { q: 1, r: 0, level: 2 },
+      });
+      expect(
+        placedBlockInteractionForTarget({
+          target: {
+            voxel: { q: 1, r: 0, level: 2 },
+            material,
+            distance: 3,
+          },
+        }),
+      ).toEqual({
+        kind: "workbench",
+        workbenchType,
+        position: { q: 1, r: 0, level: 2 },
+      });
+    }
+
     expect(workbenchInteractionOpenTarget("assembler")).toEqual({
       kind: "workbench",
       workbenchType: "assembler",
     });
   });
 
-  it("routes element combiner interaction to the material combiner", () => {
-    const interaction = validateWorkbenchInteraction({
-      target: {
-        voxel: { q: 1, r: 0, level: 2 },
-        material: TerrainMaterial.ElementCombiner,
-        distance: 3,
-      },
-    });
-
-    expect(interaction).toMatchObject({
-      ok: true,
-      workbenchType: "element_combiner",
-    });
+  it("interacting with element combiner opens the material combiner", () => {
     expect(
-      interaction.ok
-        ? workbenchInteractionOpenTarget(interaction.workbenchType)
-        : null,
+      placedBlockInteractionForTarget({
+        target: {
+          voxel: { q: 1, r: 0, level: 2 },
+          material: TerrainMaterial.ElementCombiner,
+          distance: 3,
+        },
+      }),
     ).toEqual({
       kind: "material_combiner",
       stationType: "combiner",
+      position: { q: 1, r: 0, level: 2 },
+    });
+    expect(workbenchInteractionOpenTarget("element_combiner")).toEqual({
+      kind: "material_combiner",
+      stationType: "combiner",
+    });
+  });
+
+  it("interacting with material station blocks opens their material station panel", () => {
+    const stations = [
+      [TerrainMaterial.ForgeStation, "forge"],
+      [TerrainMaterial.CrystallizerStation, "crystallizer"],
+      [TerrainMaterial.DistillerStation, "distiller"],
+      [TerrainMaterial.StabilizerStation, "stabilizer"],
+      [TerrainMaterial.InfuserStation, "infuser"],
+      [TerrainMaterial.AssemblerStation, "assembler"],
+    ] as const;
+
+    for (const [material, stationType] of stations) {
+      expect(
+        placedBlockInteractionForTarget({
+          target: {
+            voxel: { q: 1, r: 0, level: 2 },
+            material,
+            distance: 3,
+          },
+        }),
+      ).toEqual({
+        kind: "material_combiner",
+        stationType,
+        position: { q: 1, r: 0, level: 2 },
+      });
+    }
+  });
+
+  it("non-workbench right-click still falls through to normal placement", () => {
+    expect(
+      placedBlockInteractionForTarget({
+        target: {
+          voxel: { q: 1, r: 0, level: 2 },
+          material: TerrainMaterial.Stone,
+          distance: 3,
+        },
+      }),
+    ).toBeNull();
+    expect(
+      validateBlockPlacement(
+        baseInput({
+          target: target({ q: 1, r: 0, level: 2 }),
+          selectedItemId: "block:dirt",
+          selectedMaterial: TerrainMaterial.Dirt,
+        }),
+      ),
+    ).toMatchObject({
+      ok: true,
+      material: TerrainMaterial.Dirt,
     });
   });
 
@@ -390,5 +453,26 @@ describe("block placement rules", () => {
         },
       }),
     ).toEqual({ ok: false, reason: "not_workbench" });
+  });
+
+  it("invalid workbench materials do not crash", () => {
+    expect(
+      validateWorkbenchInteraction({
+        target: {
+          voxel: { q: 1, r: 0, level: 2 },
+          material: 999_999 as TerrainMaterial,
+          distance: 3,
+        },
+      }),
+    ).toEqual({ ok: false, reason: "not_workbench" });
+    expect(
+      placedBlockInteractionForTarget({
+        target: {
+          voxel: { q: 1, r: 0, level: 2 },
+          material: 999_999 as TerrainMaterial,
+          distance: 3,
+        },
+      }),
+    ).toBeNull();
   });
 });

@@ -245,7 +245,7 @@ export function startGameLoop(options: StartGameLoopOptions): void {
       survivalStats.update(deltaSeconds, cameraState);
       const materialHazards = updateHeldMaterialHazards({
         mode: game.settings.gameMode,
-        material: inventory.selectedProceduralMaterial(),
+        material: inventory.selectedHazardMaterial(),
         deltaSeconds,
         state: game.materialHazardState,
       });
@@ -299,6 +299,10 @@ export function startGameLoop(options: StartGameLoopOptions): void {
                 localWeather: worldAtmosphere.weather,
                 localIntensity: worldAtmosphere.weatherIntensity,
                 wind: worldAtmosphere.clouds.wind,
+                cloudWorldOffset: [
+                  worldAtmosphere.clouds.worldU,
+                  worldAtmosphere.clouds.worldV,
+                ],
                 cloudSample: [
                   worldAtmosphere.clouds.worldU,
                   worldAtmosphere.clouds.worldV,

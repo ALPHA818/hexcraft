@@ -3,6 +3,8 @@ import { describe, expect, it } from "vitest";
 import type { MaterialDefinition } from "./MaterialTypes.ts";
 import {
   hexColorToRgb,
+  materialBlockTintCssForVisuals,
+  materialBlockTintForVisuals,
   materialVisualsForMaterial,
   relativeLuminance,
   UNKNOWN_MATERIAL_VISUALS,
@@ -50,12 +52,31 @@ describe("material visuals", () => {
     );
   });
 
+  it("returns stable block tint for the same material", () => {
+    const material = testMaterial("generated:stable-block-tint", {
+      hardness: 72,
+      density: 58,
+      tags: ["earth"],
+    });
+    const visuals = materialVisualsForMaterial(material);
+
+    expect(materialBlockTintForVisuals(visuals)).toEqual(
+      materialBlockTintForVisuals(materialVisualsForMaterial(material)),
+    );
+    expect(materialBlockTintCssForVisuals(visuals)).toMatch(
+      /^rgb\(\d+ \d+ \d+\)$/,
+    );
+  });
+
   it("provides a fallback visual for unknown material items", () => {
     expect(UNKNOWN_MATERIAL_VISUALS).toMatchObject({
       baseColor: expect.stringMatching(/^#[0-9a-f]{6}$/i),
       accentColor: expect.stringMatching(/^#[0-9a-f]{6}$/i),
       alpha: 1,
     });
+    expect(materialBlockTintForVisuals()).toEqual(
+      materialBlockTintForVisuals(UNKNOWN_MATERIAL_VISUALS),
+    );
   });
 
   it("varies colors for different generated material ids", () => {
@@ -76,6 +97,9 @@ describe("material visuals", () => {
       second.baseColor,
       second.accentColor,
     ]);
+    expect(materialBlockTintForVisuals(first)).not.toEqual(
+      materialBlockTintForVisuals(second),
+    );
   });
 
   it("makes metal materials look metallic", () => {

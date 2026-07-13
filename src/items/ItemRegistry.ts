@@ -28,6 +28,7 @@ import {
   type EquippedTool,
   type ToolItemKind,
 } from "./ToolTypes.ts";
+import type { EquipmentSlotId } from "../game/Equipment.ts";
 
 export {
   baseToolIdFromModifiedToolItemId,
@@ -63,7 +64,13 @@ export type StaticMaterialItemId =
 export type MaterialItemId = StaticMaterialItemId | GeneratedMaterialItemId;
 export type StaticToolItemId = `tool:${ToolItemKind}`;
 export type ToolItemId = StaticToolItemId | ModifiedToolItemId;
-export type ItemId = BlockItemId | MaterialItemId | ToolItemId;
+export type EquipmentItemId =
+  | "equipment:gloves"
+  | "equipment:goggles"
+  | "equipment:respirator"
+  | "equipment:backpack";
+export type ItemId =
+  BlockItemId | MaterialItemId | ToolItemId | EquipmentItemId;
 
 type BaseItemDefinition = Readonly<{
   id: ItemId;
@@ -101,8 +108,16 @@ export type MaterialItemDefinition = BaseItemDefinition &
     kind: "material";
   }>;
 
+export type EquipmentItemDefinition = BaseItemDefinition &
+  Readonly<{
+    kind: "equipment";
+    equipmentSlot: EquipmentSlotId;
+    equipmentType: "gloves" | "goggles" | "respirator" | "backpack";
+  }>;
+
 export type ItemDefinition =
   | BlockItemDefinition
+  | EquipmentItemDefinition
   | GeneratedMaterialItemDefinition
   | MaterialItemDefinition
   | ModifiedToolItemDefinition
@@ -264,9 +279,53 @@ const MATERIAL_ITEM_DEFINITIONS = [
   },
 ] as const satisfies readonly MaterialItemDefinition[];
 
+const EQUIPMENT_ITEM_DEFINITIONS = [
+  {
+    id: "equipment:gloves",
+    displayName: "Work Gloves",
+    shortName: "Gloves",
+    maxStackSize: 1,
+    placeable: false,
+    kind: "equipment",
+    equipmentSlot: "hands",
+    equipmentType: "gloves",
+  },
+  {
+    id: "equipment:goggles",
+    displayName: "Protective Goggles",
+    shortName: "Goggles",
+    maxStackSize: 1,
+    placeable: false,
+    kind: "equipment",
+    equipmentSlot: "head",
+    equipmentType: "goggles",
+  },
+  {
+    id: "equipment:respirator",
+    displayName: "Respirator",
+    shortName: "Respirator",
+    maxStackSize: 1,
+    placeable: false,
+    kind: "equipment",
+    equipmentSlot: "head",
+    equipmentType: "respirator",
+  },
+  {
+    id: "equipment:backpack",
+    displayName: "Utility Backpack",
+    shortName: "Backpack",
+    maxStackSize: 1,
+    placeable: false,
+    kind: "equipment",
+    equipmentSlot: "back",
+    equipmentType: "backpack",
+  },
+] as const satisfies readonly EquipmentItemDefinition[];
+
 export const ITEM_DEFINITIONS: readonly ItemDefinition[] = [
   ...BLOCK_ITEM_DEFINITIONS,
   ...MATERIAL_ITEM_DEFINITIONS,
+  ...EQUIPMENT_ITEM_DEFINITIONS,
   ...TOOL_DEFINITIONS,
 ];
 

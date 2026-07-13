@@ -11,6 +11,7 @@ export type DebugOverlayWeatherSnapshot = Readonly<{
   localWeather: WeatherKind;
   localIntensity: number;
   wind: readonly [number, number];
+  cloudWorldOffset?: readonly [number, number];
   cloudSample?: readonly [number, number];
   particleCount?: number;
 }>;
@@ -52,6 +53,10 @@ export function debugOverlayRows(
     ...(snapshot.weather
       ? ([
           [
+            "Weather grid debug",
+            `F3 overlay · cell ${snapshot.weather.cellX}, ${snapshot.weather.cellZ}`,
+          ],
+          [
             "Weather zone",
             `${snapshot.weather.localWeather} ${snapshot.weather.localIntensity.toFixed(2)} in cell ${snapshot.weather.cellX}, ${snapshot.weather.cellZ}`,
           ],
@@ -59,13 +64,26 @@ export function debugOverlayRows(
             "Weather cell",
             `${snapshot.weather.cellX}, ${snapshot.weather.cellZ} @ ${snapshot.weather.timeBucket}`,
           ],
+          [
+            "Weather cell id",
+            `${snapshot.weather.cellX}, ${snapshot.weather.cellZ}`,
+          ],
           ["Cell weather", snapshot.weather.cellWeather],
           ["Local weather", snapshot.weather.localWeather],
           ["Local intensity", snapshot.weather.localIntensity.toFixed(2)],
+          ["Blended intensity", snapshot.weather.localIntensity.toFixed(2)],
           [
             "Wind direction",
             `${snapshot.weather.wind[0].toFixed(2)}, ${snapshot.weather.wind[1].toFixed(2)}`,
           ],
+          ...(snapshot.weather.cloudWorldOffset
+            ? ([
+                [
+                  "Cloud world offset",
+                  `${snapshot.weather.cloudWorldOffset[0].toFixed(1)}, ${snapshot.weather.cloudWorldOffset[1].toFixed(1)}`,
+                ],
+              ] as const)
+            : []),
           ...(snapshot.weather.cloudSample
             ? ([
                 [
@@ -76,6 +94,10 @@ export function debugOverlayRows(
             : []),
           ...(snapshot.weather.particleCount !== undefined
             ? ([
+                [
+                  "Particle count",
+                  snapshot.weather.particleCount.toLocaleString(),
+                ],
                 [
                   "Weather particles",
                   snapshot.weather.particleCount.toLocaleString(),

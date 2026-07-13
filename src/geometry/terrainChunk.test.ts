@@ -7,7 +7,11 @@ import {
   type TerrainChunkMesh,
   type TerrainColumn,
 } from "./terrainChunk.ts";
-import type { MaterialVisuals } from "../materials/MaterialVisuals.ts";
+import {
+  materialBlockTintForVisuals,
+  UNKNOWN_MATERIAL_VISUALS,
+  type MaterialVisuals,
+} from "../materials/MaterialVisuals.ts";
 
 function columnWithBlocks(
   q: number,
@@ -172,5 +176,59 @@ describe("terrain chunk generation", () => {
     expect(blueColor[2]).toBeGreaterThan(blueColor[0]);
     expect(greenColor[1]).toBeGreaterThan(greenColor[2]);
     expect(greenColor).not.toEqual(blueColor);
+  });
+
+  it("does not apply dynamic material fallback tint to static blocks", () => {
+    const mesh = buildTerrainChunk([
+      columnWithBlocks(0, 0, [
+        TerrainMaterial.Air,
+        TerrainMaterial.Stone,
+        TerrainMaterial.Air,
+      ]),
+    ]);
+    const color = firstVertexColor(mesh);
+
+    expect(color[0]).toBeCloseTo(color[1]);
+    expect(color[1]).toBeCloseTo(color[2]);
+  });
+
+  it("uses fallback visuals for dynamic material blocks with unknown metadata", () => {
+    const dynamicColumn = columnWithBlocks(0, 0, [
+      TerrainMaterial.Air,
+      TerrainMaterial.DynamicMaterial,
+      TerrainMaterial.Air,
+    ]);
+    const missingVisualMesh = buildTerrainChunk([dynamicColumn], undefined);
+    const explicitFallbackMesh = buildTerrainChunk(
+      [dynamicColumn],
+      undefined,
+      undefined,
+      {
+        dynamicMaterialVisualAt: () => UNKNOWN_MATERIAL_VISUALS,
+      },
+    );
+
+    expect(firstVertexColor(missingVisualMesh)).toEqual(
+      firstVertexColor(explicitFallbackMesh),
+    );
+    expect(firstVertexColor(missingVisualMesh)).not.toEqual([1, 1, 1]);
+  });
+
+  it("stores dynamic material tint in the terrain vertex color attribute", () => {
+    const dynamicColumn = columnWithBlocks(0, 0, [
+      TerrainMaterial.Air,
+      TerrainMaterial.DynamicMaterial,
+      TerrainMaterial.Air,
+    ]);
+    const materialVisual = visual("#2864d9", "#9fceff");
+    const mesh = buildTerrainChunk([dynamicColumn], undefined, undefined, {
+      dynamicMaterialVisualAt: () => materialVisual,
+    });
+    const tint = materialBlockTintForVisuals(materialVisual);
+    const vertexColor = firstVertexColor(mesh);
+
+    expect(mesh.floatsPerVertex).toBe(11);
+    expect(vertexColor[2]).toBeGreaterThan(vertexColor[0]);
+    expect(vertexColor[2]).toBeLessThanOrEqual(tint[2]);
   });
 });

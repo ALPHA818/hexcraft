@@ -26,7 +26,7 @@ export const WORKBENCH_LABELS = {
   organic: "Organic Workbench",
   crystal: "Crystal Workbench",
   chemical: "Chemical Workbench",
-  assembler: "Assembler",
+  assembler: "Assembler Workbench",
   element_combiner: "Element Combiner",
 } as const satisfies Record<WorkbenchType, string>;
 

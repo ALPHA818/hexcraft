@@ -4,6 +4,11 @@ import { TerrainMaterial } from "../geometry/terrainChunk.ts";
 import { applyMaterialDropRules } from "../game/MaterialDropRules.ts";
 import { itemIdForMaterial, type ItemId } from "../items/ItemRegistry.ts";
 import { MaterialRegistry } from "../materials/MaterialRegistry.ts";
+import {
+  materialBlockTintForVisuals,
+  materialVisualsForMaterial,
+  UNKNOWN_MATERIAL_VISUALS,
+} from "../materials/MaterialVisuals.ts";
 import type {
   MaterialDefinition,
   MaterialStats,
@@ -13,6 +18,7 @@ import {
   dynamicMaterialBlockDisplayName,
   dynamicMaterialBlockDropItemId,
   dynamicMaterialBlockPlacement,
+  dynamicMaterialBlockVisuals,
   dynamicMaterialVoxelKey,
   DYNAMIC_MATERIAL_BLOCK_DISPLAY_NAME,
   UNKNOWN_DYNAMIC_MATERIAL_BLOCK_DISPLAY_NAME,
@@ -159,6 +165,22 @@ describe("dynamic material blocks", () => {
     );
     expect(dynamicMaterialBlockDisplayName(null, registry)).toBe(
       DYNAMIC_MATERIAL_BLOCK_DISPLAY_NAME,
+    );
+  });
+
+  it("resolves dynamic block visuals from material metadata with fallback", () => {
+    const material = generatedMaterial();
+    const registry = registryWith(material);
+    const knownVisuals = dynamicMaterialBlockVisuals(material.id, registry);
+    const fallbackVisuals = dynamicMaterialBlockVisuals(
+      "generated:missing",
+      registry,
+    );
+
+    expect(knownVisuals).toEqual(materialVisualsForMaterial(material));
+    expect(fallbackVisuals).toEqual(UNKNOWN_MATERIAL_VISUALS);
+    expect(materialBlockTintForVisuals(knownVisuals)).not.toEqual(
+      materialBlockTintForVisuals(fallbackVisuals),
     );
   });
 

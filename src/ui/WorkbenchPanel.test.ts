@@ -4,6 +4,8 @@ import { Inventory } from "../game/Inventory.ts";
 import type { WorkbenchInventory } from "../game/WorkbenchController.ts";
 import { WorkbenchController } from "../game/WorkbenchController.ts";
 import { MaterialWorldController } from "../game/MaterialWorldController.ts";
+import { GENERATED_MATERIAL_RECIPE_OUTPUTS } from "../crafting/GeneratedMaterialRecipes.ts";
+import type { WorkbenchType } from "../crafting/WorkbenchTypes.ts";
 import type {
   MaterialDefinition,
   MaterialStats,
@@ -115,6 +117,7 @@ class FakeElement {
   readonly classList = new FakeClassList(this);
   className = "";
   textContent = "";
+  title = "";
   type = "";
   hidden = false;
   disabled = false;
@@ -185,6 +188,88 @@ function generatedWorkbenchMaterial(
     requiredResearchTier: "metallurgical",
     discoveredAt: 1,
   };
+}
+
+const LOW_QUALITY_MATERIAL_STATS: MaterialStats = {
+  stability: 35,
+  hardness: 15,
+  density: 20,
+  heat: 10,
+  conductivity: 10,
+  toxicity: 0,
+  radioactivity: 0,
+  magic: 0,
+  organic: 0,
+  metal: 0,
+  crystal: 0,
+  gas: 0,
+  liquid: 0,
+};
+
+function generatedProgressionMaterial(
+  id: string,
+  name: string,
+  stats: Partial<MaterialStats>,
+  tags: readonly string[] = [],
+): MaterialDefinition {
+  return {
+    id,
+    name,
+    generation: 1,
+    parents: ["element:iron", "element:carbon"],
+    rarity: "rare",
+    ...LOW_QUALITY_MATERIAL_STATS,
+    ...stats,
+    tags,
+    discoveredAt: 1,
+  };
+}
+
+function controllerForMaterial(
+  material: MaterialDefinition,
+  inventory = new TestInventory(),
+): WorkbenchController {
+  const materialWorld = new MaterialWorldController({
+    mode: inventory.isCreative() ? "creative" : "survival",
+  });
+
+  materialWorld.registry.registerGeneratedMaterial(material);
+
+  return new WorkbenchController({
+    inventory,
+    materialWorld,
+  });
+}
+
+function generatedRecipeIds(
+  controller: WorkbenchController,
+  workbenchType: WorkbenchType,
+  recipeKind: string,
+): readonly string[] {
+  return controller
+    .recipesForWorkbench(workbenchType)
+    .filter(
+      (recipe) =>
+        "generatedRecipeKind" in recipe &&
+        recipe.generatedRecipeKind === recipeKind,
+    )
+    .map((recipe) => recipe.id);
+}
+
+function generatedRecipeForKind(
+  controller: WorkbenchController,
+  workbenchType: WorkbenchType,
+  recipeKind: string,
+) {
+  return (
+    controller
+      .recipesForWorkbench(workbenchType)
+      .find(
+        (recipe) =>
+          "generatedRecipeKind" in recipe &&
+          recipe.generatedRecipeKind === recipeKind,
+      ) ?? null
+  );
 }
 
 function installFakeDocument(): FakeElement {
@@ -388,6 +473,171 @@ describe("workbench crafting", () => {
     });
   });
 
+  it("high toolGrade generated materials create assembler upgrade recipes", () => {
+    const inventory = new TestInventory();
+    const material = generatedProgressionMaterial(
+      "generated:workbench-tool-alloy",
+      "Workbench Tool Alloy",
+      {
+        stability: 88,
+        hardness: 96,
+        density: 76,
+        conductivity: 64,
+        metal: 96,
+      },
+      ["metal", "alloy", "forged"],
+    );
+    const materialItemId = itemIdForMaterial(material.id);
+    const controller = controllerForMaterial(material, inventory);
+
+    inventory.set("tool:pickaxe", 1);
+    inventory.set(materialItemId, 1);
+
+    expect(
+      controller.recipesForWorkbench("assembler").map((recipe) => recipe.id),
+    ).toContain(modifiedToolRecipeId("tool:pickaxe", material.id));
+  });
+
+  it("high buildingGrade generated materials create assembler stabilize recipes", () => {
+    const inventory = new TestInventory();
+    const material = generatedProgressionMaterial(
+      "generated:workbench-fortress-stone",
+      "Workbench Fortress Stone",
+      {
+        stability: 98,
+        hardness: 92,
+        density: 86,
+        metal: 18,
+        crystal: 12,
+      },
+      ["building", "stone", "stable"],
+    );
+    const controller = controllerForMaterial(material, inventory);
+
+    inventory.set(itemIdForMaterial(material.id), 1);
+
+    expect(
+      generatedRecipeIds(controller, "assembler", "stabilized_block"),
+    ).toContain(`generated-material:stabilized_block:${material.id}`);
+    expect(generatedRecipeIds(controller, "basic", "stabilized_block")).toEqual(
+      [],
+    );
+  });
+
+  it("high magicFocusGrade generated materials create magic recipes", () => {
+    const inventory = new TestInventory();
+    const material = generatedProgressionMaterial(
+      "generated:workbench-arcane-crystal",
+      "Workbench Arcane Crystal",
+      {
+        stability: 82,
+        conductivity: 66,
+        magic: 98,
+        crystal: 96,
+      },
+      ["magic", "arcane", "crystal", "focus"],
+    );
+    const controller = controllerForMaterial(material, inventory);
+    const materialItemId = itemIdForMaterial(material.id);
+
+    inventory.set(materialItemId, 1);
+
+    const recipe = generatedRecipeForKind(controller, "magic", "magic_core");
+
+    expect(recipe).toMatchObject({
+      requiredWorkbench: "magic",
+      outputs: [
+        { itemId: GENERATED_MATERIAL_RECIPE_OUTPUTS.magicCore, count: 1 },
+      ],
+    });
+    expect(generatedRecipeIds(controller, "chemical", "magic_core")).toEqual(
+      [],
+    );
+  });
+
+  it("low quality generated materials do not unlock advanced recipes", () => {
+    const inventory = new TestInventory();
+    const material = generatedProgressionMaterial(
+      "generated:workbench-muddy-slush",
+      "Workbench Muddy Slush",
+      {},
+      ["mud"],
+    );
+    const controller = controllerForMaterial(material, inventory);
+
+    inventory.set("tool:pickaxe", 1);
+    inventory.set(itemIdForMaterial(material.id), 1);
+
+    expect(
+      [
+        ...controller.recipesForWorkbench("basic"),
+        ...controller.recipesForWorkbench("metal"),
+        ...controller.recipesForWorkbench("magic"),
+        ...controller.recipesForWorkbench("chemical"),
+        ...controller.recipesForWorkbench("assembler"),
+      ].some(
+        (recipe) =>
+          "generatedMaterialId" in recipe &&
+          recipe.generatedMaterialId === material.id,
+      ),
+    ).toBe(false);
+  });
+
+  it("survival generated material crafting consumes input", () => {
+    const inventory = new TestInventory();
+    const material = generatedProgressionMaterial(
+      "generated:survival-core-crystal",
+      "Survival Core Crystal",
+      {
+        stability: 82,
+        conductivity: 66,
+        magic: 98,
+        crystal: 96,
+      },
+      ["magic", "arcane", "crystal", "focus"],
+    );
+    const materialItemId = itemIdForMaterial(material.id);
+    const controller = controllerForMaterial(material, inventory);
+
+    inventory.set(materialItemId, 1);
+
+    const recipe = generatedRecipeForKind(controller, "magic", "magic_core");
+
+    expect(recipe).not.toBeNull();
+    expect(controller.craft(recipe?.id ?? "", "magic").ok).toBe(true);
+    expect(inventory.counts.get(materialItemId)).toBe(0);
+    expect(
+      inventory.counts.get(GENERATED_MATERIAL_RECIPE_OUTPUTS.magicCore),
+    ).toBe(1);
+  });
+
+  it("creative generated material crafting does not consume input", () => {
+    const inventory = new TestInventory(true);
+    const material = generatedProgressionMaterial(
+      "generated:creative-core-crystal",
+      "Creative Core Crystal",
+      {
+        stability: 82,
+        conductivity: 66,
+        magic: 98,
+        crystal: 96,
+      },
+      ["magic", "arcane", "crystal", "focus"],
+    );
+    const materialItemId = itemIdForMaterial(material.id);
+    const controller = controllerForMaterial(material, inventory);
+    const recipe = generatedRecipeForKind(controller, "magic", "magic_core");
+
+    inventory.set(materialItemId, 1);
+
+    expect(recipe).not.toBeNull();
+    expect(controller.craft(recipe?.id ?? "", "magic").ok).toBe(true);
+    expect(inventory.counts.get(materialItemId)).toBe(1);
+    expect(
+      inventory.counts.get(GENERATED_MATERIAL_RECIPE_OUTPUTS.magicCore),
+    ).toBe(1);
+  });
+
   it("research-gated material upgrade recipes unlock with the required tier", () => {
     const inventory = new TestInventory();
     const materialWorld = new MaterialWorldController({ mode: "survival" });
@@ -446,7 +696,13 @@ describe("workbench crafting", () => {
 
     panel.show("basic", true);
 
+    expect(
+      findByText(root, "Other workbench tabs require interacting"),
+    ).toBeDefined();
     expect(findByText(root, "Metal Workbench").disabled).toBe(true);
+    expect(findByText(root, "Metal Workbench").title).toBe(
+      "Requires placed Metal Workbench",
+    );
     expect(canOpenWorkbenchTestingPanel("survival", false)).toBe(false);
     expect(canOpenWorkbenchTestingPanel("creative", false)).toBe(true);
   });
@@ -457,7 +713,8 @@ describe("workbench crafting", () => {
       controller: controllerFor(new TestInventory(true)),
     });
 
-    panel.show("metal", false);
+    panel.show("basic", false);
+    click(findByText(root, "Metal Workbench"));
 
     expect(findByText(root, "Forge Station")).toBeDefined();
     expect(findByText(root, "Basic Workbench").disabled).toBe(false);
@@ -474,6 +731,8 @@ describe("workbench crafting", () => {
     expect(findByText(root, "Forge Station")).toBeDefined();
     expect(findByText(root, "Basic Workbench").disabled).toBe(true);
     expect(findByText(root, "Magic Workbench").disabled).toBe(true);
+    click(findByText(root, "Basic Workbench"));
+    expect(findByText(root, "Forge Station")).toBeDefined();
   });
 
   it("element combiner workbench opens the material combiner handoff", () => {

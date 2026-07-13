@@ -26,6 +26,8 @@ export const UNKNOWN_MATERIAL_VISUALS: MaterialVisuals = {
   alpha: 1,
 };
 
+export type MaterialBlockTint = RgbColor;
+
 type VisualFamily =
   | "toxic"
   | "fire"
@@ -387,6 +389,38 @@ export function relativeLuminance(color: HexColor | string): number {
     linearize(green) * 0.7152 +
     linearize(blue) * 0.0722
   );
+}
+
+export function materialBlockTintForVisuals(
+  visual: MaterialVisuals = UNKNOWN_MATERIAL_VISUALS,
+): MaterialBlockTint {
+  const base = hexColorToRgb(visual.baseColor);
+  const accent = hexColorToRgb(visual.accentColor);
+  const color = mixRgb(base, accent, 0.18 + visual.emissiveStrength * 0.1);
+
+  return mixRgb(color, [1, 1, 1], visual.metallic * 0.08);
+}
+
+export function rgbColorToCss(color: RgbColor): string {
+  return `rgb(${Math.round(clamp01(color[0]) * 255)} ${Math.round(
+    clamp01(color[1]) * 255,
+  )} ${Math.round(clamp01(color[2]) * 255)})`;
+}
+
+export function materialBlockTintCssForVisuals(
+  visual: MaterialVisuals = UNKNOWN_MATERIAL_VISUALS,
+): string {
+  return rgbColorToCss(materialBlockTintForVisuals(visual));
+}
+
+function mixRgb(first: RgbColor, second: RgbColor, amount: number): RgbColor {
+  const clampedAmount = clamp01(amount);
+
+  return [
+    first[0] * (1 - clampedAmount) + second[0] * clampedAmount,
+    first[1] * (1 - clampedAmount) + second[1] * clampedAmount,
+    first[2] * (1 - clampedAmount) + second[2] * clampedAmount,
+  ];
 }
 
 export function materialVisualsForMaterial(

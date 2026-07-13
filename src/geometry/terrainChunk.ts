@@ -1,6 +1,7 @@
 import { FLOATS_PER_VERTEX, type MeshData } from "./hexPrism.ts";
 import {
-  hexColorToRgb,
+  materialBlockTintForVisuals,
+  UNKNOWN_MATERIAL_VISUALS,
   type MaterialVisuals,
 } from "../materials/MaterialVisuals.ts";
 import { atlasUv, BlockTexture } from "../render/blockTextureAtlas.ts";
@@ -344,28 +345,10 @@ function faceIsExposed(
   );
 }
 
-function mixColor(first: Color, second: Color, amount: number): Color {
-  const clampedAmount = Math.max(0, Math.min(1, amount));
-
-  return [
-    first[0] * (1 - clampedAmount) + second[0] * clampedAmount,
-    first[1] * (1 - clampedAmount) + second[1] * clampedAmount,
-    first[2] * (1 - clampedAmount) + second[2] * clampedAmount,
-  ];
-}
-
 function dynamicMaterialTint(
   visual: MaterialVisuals | null | undefined,
-): Color | null {
-  if (!visual) {
-    return null;
-  }
-
-  const base = hexColorToRgb(visual.baseColor);
-  const accent = hexColorToRgb(visual.accentColor);
-  const color = mixColor(base, accent, 0.18 + visual.emissiveStrength * 0.1);
-
-  return mixColor(color, [1, 1, 1], visual.metallic * 0.08);
+): Color {
+  return materialBlockTintForVisuals(visual ?? UNKNOWN_MATERIAL_VISUALS);
 }
 
 export function buildTerrainChunk(
@@ -487,11 +470,15 @@ export function buildTerrainChunk(
         material === TerrainMaterial.Water
           ? tint([0.82, 0.94, 1], heightVariation * Math.max(0.68, localLight))
           : tint(
-              dynamicMaterialTint(
-                material === TerrainMaterial.DynamicMaterial
-                  ? options.dynamicMaterialVisualAt?.(column.q, column.r, level)
-                  : null,
-              ) ?? [1, 1, 1],
+              material === TerrainMaterial.DynamicMaterial
+                ? dynamicMaterialTint(
+                    options.dynamicMaterialVisualAt?.(
+                      column.q,
+                      column.r,
+                      level,
+                    ),
+                  )
+                : [1, 1, 1],
               heightVariation * localLight,
             );
 

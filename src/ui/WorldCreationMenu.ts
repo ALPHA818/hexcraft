@@ -1,5 +1,10 @@
 import type { GameSettings } from "../game/GameSettings.ts";
 import type { GameMode } from "../game/gameMode.ts";
+import {
+  defaultStartingInventoryMode,
+  isStartingInventoryMode,
+  type StartingInventoryMode,
+} from "../game/StartingInventory.ts";
 
 function escapeAttribute(value: string): string {
   return value
@@ -48,6 +53,14 @@ export class WorldCreationMenu {
         </select>
       </label>
       <label>
+        <span>Starting inventory</span>
+        <select name="startingInventoryMode">
+          <option value="none">None</option>
+          <option value="survival_basic">Survival Basic</option>
+          <option value="creative_testing">Creative Testing</option>
+        </select>
+      </label>
+      <label>
         <span>Render distance</span>
         <input name="renderDistance" type="number" min="1" max="8" value="${settings.renderDistance}" inputmode="numeric" />
       </label>
@@ -58,7 +71,21 @@ export class WorldCreationMenu {
     `;
 
     const modeSelect = form.elements.namedItem("gameMode") as HTMLSelectElement;
+    const startingInventorySelect = form.elements.namedItem(
+      "startingInventoryMode",
+    ) as HTMLSelectElement;
     modeSelect.value = settings.gameMode;
+    startingInventorySelect.value =
+      settings.startingInventoryMode ??
+      defaultStartingInventoryMode(settings.gameMode);
+    modeSelect.addEventListener("change", () => {
+      const mode =
+        modeSelect.value === "survival" || modeSelect.value === "creative"
+          ? modeSelect.value
+          : settings.gameMode;
+
+      startingInventorySelect.value = defaultStartingInventoryMode(mode);
+    });
     form.addEventListener("submit", (event) => {
       event.preventDefault();
       this.#callbacks.startWorld(this.#settingsFromForm(form, settings));
@@ -80,16 +107,21 @@ export class WorldCreationMenu {
     const worldName = String(data.get("worldName") ?? "").trim();
     const worldSeed = Number(data.get("worldSeed"));
     const gameMode = data.get("gameMode");
+    const startingInventoryMode = data.get("startingInventoryMode");
     const renderDistance = Number(data.get("renderDistance"));
+    const resolvedGameMode =
+      gameMode === "creative" || gameMode === "survival"
+        ? (gameMode as GameMode)
+        : fallback.gameMode;
 
     return {
       ...fallback,
       worldName: worldName || fallback.worldName,
       worldSeed: Number.isFinite(worldSeed) ? worldSeed : fallback.worldSeed,
-      gameMode:
-        gameMode === "creative" || gameMode === "survival"
-          ? (gameMode as GameMode)
-          : fallback.gameMode,
+      gameMode: resolvedGameMode,
+      startingInventoryMode: isStartingInventoryMode(startingInventoryMode)
+        ? (startingInventoryMode as StartingInventoryMode)
+        : defaultStartingInventoryMode(resolvedGameMode),
       renderDistance: Number.isFinite(renderDistance)
         ? Math.max(1, Math.floor(renderDistance))
         : fallback.renderDistance,

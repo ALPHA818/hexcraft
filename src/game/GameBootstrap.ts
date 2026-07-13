@@ -18,11 +18,13 @@ export type GameDomElements = Readonly<{
   modeStatus: HTMLElement | null;
   meshStatus: HTMLElement | null;
   survivalHudRoot: HTMLElement;
+  objectiveTrackerRoot: HTMLElement;
   debugOverlayRoot: HTMLElement;
   materialCodexRoot: HTMLElement;
   materialCombinerRoot: HTMLElement;
   materialResearchRoot: HTMLElement;
   materialStorageRoot: HTMLElement;
+  equipmentRoot: HTMLElement;
   creativeCatalogRoot: HTMLElement;
   workbenchRoot: HTMLElement;
   deathScreenRoot: HTMLElement;
@@ -59,6 +61,10 @@ export function readGameDom(): GameDomElements {
       "#survival-hud",
       "survival HUD",
     ),
+    objectiveTrackerRoot: queryRequiredElement<HTMLElement>(
+      "#objective-tracker",
+      "objective tracker",
+    ),
     debugOverlayRoot: queryRequiredElement<HTMLElement>(
       "#debug-overlay",
       "debug overlay",
@@ -79,6 +85,7 @@ export function readGameDom(): GameDomElements {
       "#material-storage",
       "material storage",
     ),
+    equipmentRoot: queryRequiredElement<HTMLElement>("#equipment", "equipment"),
     creativeCatalogRoot: queryRequiredElement<HTMLElement>(
       "#creative-catalog",
       "creative catalog",

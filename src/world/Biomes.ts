@@ -2,6 +2,7 @@ import {
   TerrainMaterial,
   type TerrainBiome,
 } from "../geometry/terrainChunk.ts";
+import type { WeatherKind } from "../environment/Atmosphere.ts";
 
 export type BiomeSelectionInput = Readonly<{
   height: number;
@@ -23,7 +24,20 @@ export type TerrainBiomeDefinition = Readonly<{
   flowerChance: number;
   mushroomChance: number;
   cactusChance: number;
+  weatherWeights: BiomeWeatherWeights;
 }>;
+
+export type BiomeWeatherWeights = Readonly<Record<WeatherKind, number>>;
+
+const BALANCED_WEATHER_WEIGHTS = {
+  clear: 1.35,
+  cloudy: 1.1,
+  rain: 0.9,
+  storm: 0.35,
+  snow: 0.15,
+  fog: 0.45,
+  sandstorm: 0.03,
+} as const satisfies BiomeWeatherWeights;
 
 export const BIOME_DEFINITIONS = {
   grassland: {
@@ -37,6 +51,7 @@ export const BIOME_DEFINITIONS = {
     flowerChance: 0.05,
     mushroomChance: 0,
     cactusChance: 0,
+    weatherWeights: BALANCED_WEATHER_WEIGHTS,
   },
   forest: {
     id: "forest",
@@ -48,6 +63,15 @@ export const BIOME_DEFINITIONS = {
     flowerChance: 0.01,
     mushroomChance: 0.025,
     cactusChance: 0,
+    weatherWeights: {
+      clear: 0.65,
+      cloudy: 1.1,
+      rain: 1.55,
+      storm: 0.45,
+      snow: 0.1,
+      fog: 1.1,
+      sandstorm: 0.02,
+    },
   },
   desert: {
     id: "desert",
@@ -59,6 +83,15 @@ export const BIOME_DEFINITIONS = {
     flowerChance: 0,
     mushroomChance: 0,
     cactusChance: 0.028,
+    weatherWeights: {
+      clear: 1.6,
+      cloudy: 0.75,
+      rain: 0.18,
+      storm: 0.22,
+      snow: 0.02,
+      fog: 0.08,
+      sandstorm: 2.2,
+    },
   },
   tundra: {
     id: "tundra",
@@ -70,6 +103,15 @@ export const BIOME_DEFINITIONS = {
     flowerChance: 0,
     mushroomChance: 0,
     cactusChance: 0,
+    weatherWeights: {
+      clear: 0.7,
+      cloudy: 0.95,
+      rain: 0.18,
+      storm: 0.28,
+      snow: 1.8,
+      fog: 0.65,
+      sandstorm: 0.01,
+    },
   },
   alpine: {
     id: "alpine",
@@ -81,6 +123,15 @@ export const BIOME_DEFINITIONS = {
     flowerChance: 0,
     mushroomChance: 0,
     cactusChance: 0,
+    weatherWeights: {
+      clear: 0.65,
+      cloudy: 0.9,
+      rain: 0.12,
+      storm: 0.4,
+      snow: 1.65,
+      fog: 0.55,
+      sandstorm: 0.02,
+    },
   },
   snow: {
     id: "snow",
@@ -92,6 +143,15 @@ export const BIOME_DEFINITIONS = {
     flowerChance: 0,
     mushroomChance: 0,
     cactusChance: 0,
+    weatherWeights: {
+      clear: 0.55,
+      cloudy: 0.9,
+      rain: 0.08,
+      storm: 0.25,
+      snow: 2.1,
+      fog: 0.6,
+      sandstorm: 0.01,
+    },
   },
   beach: {
     id: "beach",
@@ -103,6 +163,15 @@ export const BIOME_DEFINITIONS = {
     flowerChance: 0,
     mushroomChance: 0,
     cactusChance: 0,
+    weatherWeights: {
+      clear: 1,
+      cloudy: 1,
+      rain: 0.75,
+      storm: 0.35,
+      snow: 0.04,
+      fog: 0.65,
+      sandstorm: 0.05,
+    },
   },
   swamp: {
     id: "swamp",
@@ -115,6 +184,15 @@ export const BIOME_DEFINITIONS = {
     flowerChance: 0,
     mushroomChance: 0.035,
     cactusChance: 0,
+    weatherWeights: {
+      clear: 0.28,
+      cloudy: 1,
+      rain: 1.35,
+      storm: 0.45,
+      snow: 0.04,
+      fog: 3.2,
+      sandstorm: 0.01,
+    },
   },
   badlands: {
     id: "badlands",
@@ -126,6 +204,15 @@ export const BIOME_DEFINITIONS = {
     flowerChance: 0,
     mushroomChance: 0,
     cactusChance: 0.012,
+    weatherWeights: {
+      clear: 1.25,
+      cloudy: 0.85,
+      rain: 0.25,
+      storm: 0.3,
+      snow: 0.03,
+      fog: 0.08,
+      sandstorm: 1.85,
+    },
   },
 } as const satisfies Record<TerrainBiome, TerrainBiomeDefinition>;
 
@@ -133,6 +220,14 @@ export function biomeDefinitionFor(
   biome: TerrainBiome,
 ): TerrainBiomeDefinition {
   return BIOME_DEFINITIONS[biome];
+}
+
+export function biomeWeatherWeightsFor(
+  biome: TerrainBiome | null | undefined,
+): BiomeWeatherWeights {
+  return biome
+    ? BIOME_DEFINITIONS[biome].weatherWeights
+    : BALANCED_WEATHER_WEIGHTS;
 }
 
 export function selectBiome(input: BiomeSelectionInput): TerrainBiome {

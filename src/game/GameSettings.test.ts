@@ -43,6 +43,7 @@ describe("game settings", () => {
     expect(typeof settings.showMobileControls).toBe("boolean");
     expect(settings.chunkSize).toBeGreaterThan(0);
     expect(settings.renderDistance).toBeGreaterThan(0);
+    expect(settings.startingInventoryMode).toBeUndefined();
   });
 
   it("falls back to defaults when localStorage is unavailable", () => {
@@ -65,6 +66,7 @@ describe("game settings", () => {
         enableDayNightCycle: false,
         debugOverlay: true,
         showMobileControls: true,
+        startingInventoryMode: "creative_testing",
       } satisfies GameSettings),
     );
 
@@ -78,7 +80,20 @@ describe("game settings", () => {
       enableDayNightCycle: false,
       debugOverlay: true,
       showMobileControls: true,
+      startingInventoryMode: "creative_testing",
     });
+  });
+
+  it("defaults missing starting inventory mode by game mode", () => {
+    stubLocalStorage(
+      JSON.stringify({
+        gameMode: "survival",
+      }),
+    );
+
+    expect(loadGameSettingsFromLocalStorage().startingInventoryMode).toBe(
+      "survival_basic",
+    );
   });
 
   it("saves settings to localStorage", () => {

@@ -9,6 +9,7 @@ import {
   materialHazardsForMaterial,
   updateHeldMaterialHazards,
 } from "./MaterialHazards.ts";
+import { MaterialStorage } from "./MaterialStorage.ts";
 
 const BASE_STATS: MaterialStats = {
   stability: 75,
@@ -101,6 +102,60 @@ describe("material hazards", () => {
     ).not.toContain("hot");
   });
 
+  it("creates burning hot warning for held hot material", () => {
+    const material = testMaterial("generated:hot-coal", { heat: 90 }, ["fire"]);
+    const result = updateHeldMaterialHazards({
+      mode: "survival",
+      material,
+      deltaSeconds: 1,
+      state: createMaterialHazardState(),
+      config: { hazardDamageInterval: 1 },
+    });
+
+    expect(result.warnings).toContain("Burning hot material");
+    expect(result.damage).toBeGreaterThan(0);
+  });
+
+  it("creates unstable warning without immediate damage by itself", () => {
+    const material = testMaterial(
+      "generated:unstable-glass",
+      { stability: 12 },
+      ["unstable"],
+    );
+    const result = updateHeldMaterialHazards({
+      mode: "survival",
+      material,
+      deltaSeconds: 1,
+      state: createMaterialHazardState(),
+      config: { hazardDamageInterval: 1 },
+    });
+
+    expect(result.warnings).toContain("Unstable material");
+    expect(result.damage).toBe(0);
+  });
+
+  it("does not punish hazardous materials kept in storage", () => {
+    const material = testMaterial(
+      "generated:stored-uranium",
+      { radioactivity: 95 },
+      ["radioactive"],
+    );
+    const storage = new MaterialStorage();
+
+    storage.addMaterial(material.id, 4);
+    const result = updateHeldMaterialHazards({
+      mode: "survival",
+      material: null,
+      deltaSeconds: 10,
+      state: createMaterialHazardState(),
+      config: { hazardDamageInterval: 1 },
+    });
+
+    expect(storage.count(material.id)).toBe(4);
+    expect(result.warnings).toEqual([]);
+    expect(result.damage).toBe(0);
+  });
+
   it("ignores hazard damage in creative", () => {
     const material = testMaterial(
       "generated:danger",
@@ -137,6 +192,41 @@ describe("material hazards", () => {
     expect(result.damage).toBe(0);
     expect(result.warnings).toEqual([]);
     expect(result.radiationExposureDelta).toBe(0);
+  });
+
+  it("uses configured thresholds and protection placeholders", () => {
+    const material = testMaterial(
+      "generated:protected-rad",
+      { radioactivity: 62 },
+      [],
+    );
+    const unprotected = updateHeldMaterialHazards({
+      mode: "survival",
+      material,
+      deltaSeconds: 1,
+      state: createMaterialHazardState(),
+      config: {
+        hazardDamageInterval: 1,
+        hazardRadioactivityThreshold: 60,
+      },
+    });
+    const protectedResult = updateHeldMaterialHazards({
+      mode: "survival",
+      material,
+      deltaSeconds: 1,
+      state: createMaterialHazardState(),
+      protection: { radioactive: 0.5 },
+      config: {
+        hazardDamageInterval: 1,
+        hazardRadioactivityThreshold: 60,
+      },
+    });
+
+    expect(unprotected.warnings).toContain("Radioactive material");
+    expect(protectedResult.damage).toBeCloseTo(unprotected.damage * 0.5);
+    expect(protectedResult.radiationExposureDelta).toBeCloseTo(
+      unprotected.radiationExposureDelta * 0.5,
+    );
   });
 
   it("does not flag safe materials", () => {
@@ -183,5 +273,21 @@ describe("material hazards", () => {
     expect(first.damage).toBe(0);
     expect(second.damage).toBe(0);
     expect(third.damage).toBeGreaterThan(0);
+  });
+
+  it("caps stalled-frame hazard damage to a readable tick", () => {
+    const material = testMaterial("generated:lag-rad", { radioactivity: 90 }, [
+      "radioactive",
+    ]);
+    const result = updateHeldMaterialHazards({
+      mode: "survival",
+      material,
+      deltaSeconds: 30,
+      state: createMaterialHazardState(),
+      config: { hazardDamageInterval: 1 },
+    });
+
+    expect(result.damage).toBeLessThan(2);
+    expect(result.radiationExposureDelta).toBe(4);
   });
 });

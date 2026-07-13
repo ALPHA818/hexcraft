@@ -35,6 +35,10 @@ export function canOpenWorkbenchTestingPanel(
   return mode === "creative" || debugOverlay;
 }
 
+export function workbenchRequiredMessage(workbenchType: WorkbenchType): string {
+  return `Using placed ${WORKBENCH_LABELS[workbenchType]}. Other workbench tabs require interacting with their placed block.`;
+}
+
 function stackLabel(
   stack: RecipeStack,
   controller: WorkbenchController,
@@ -168,13 +172,16 @@ export class WorkbenchPanel {
     const title = document.createElement("h2");
     const subtitle = document.createElement("p");
     const closeButton = document.createElement("button");
+    const lockNotice = document.createElement("p");
     const tabs = document.createElement("nav");
     const list = document.createElement("section");
     const message = document.createElement("p");
 
     card.className = "workbench-card";
     title.textContent = WORKBENCH_LABELS[this.#workbenchType];
-    subtitle.textContent = `${WORKBENCH_LABELS[this.#workbenchType]} recipes`;
+    subtitle.textContent = this.#lockedToWorkbench
+      ? "Placed workbench recipes"
+      : `${WORKBENCH_LABELS[this.#workbenchType]} recipes`;
     closeButton.type = "button";
     closeButton.className = "workbench-close";
     closeButton.textContent = "Close";
@@ -183,6 +190,11 @@ export class WorkbenchPanel {
     closeButton.addEventListener("click", () => this.hide());
     titleGroup.append(title, subtitle);
     header.append(titleGroup, closeButton);
+
+    lockNotice.className = "workbench-lock-notice";
+    lockNotice.textContent = this.#lockedToWorkbench
+      ? workbenchRequiredMessage(this.#workbenchType)
+      : "";
 
     tabs.className = "workbench-tabs";
     tabs.replaceChildren(
@@ -196,7 +208,13 @@ export class WorkbenchPanel {
 
     message.className = "workbench-message";
     message.textContent = this.#message;
-    card.append(header, tabs, list, message);
+    card.append(
+      header,
+      ...(this.#lockedToWorkbench ? [lockNotice] : []),
+      tabs,
+      list,
+      message,
+    );
     this.#root.replaceChildren(card);
     this.#root.removeEventListener("keydown", this.#handleKeyDown);
     this.#root.addEventListener("keydown", this.#handleKeyDown);
@@ -247,13 +265,14 @@ export class WorkbenchPanel {
     button.type = "button";
     button.className = "workbench-tab";
     button.classList.toggle("selected", workbenchType === this.#workbenchType);
-    button.title = `Show ${WORKBENCH_LABELS[workbenchType]} recipes`;
-    button.setAttribute(
-      "aria-label",
-      `Show ${WORKBENCH_LABELS[workbenchType]} recipes`,
-    );
-    button.disabled =
+    const disabled =
       this.#lockedToWorkbench && workbenchType !== this.#workbenchType;
+
+    button.title = disabled
+      ? `Requires placed ${WORKBENCH_LABELS[workbenchType]}`
+      : `Show ${WORKBENCH_LABELS[workbenchType]} recipes`;
+    button.setAttribute("aria-label", button.title);
+    button.disabled = disabled;
     button.textContent = WORKBENCH_LABELS[workbenchType];
     button.addEventListener("click", () => {
       if (button.disabled) {

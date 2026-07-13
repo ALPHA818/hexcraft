@@ -8,6 +8,11 @@ import {
   BLOCK_TEXTURE_TILE_COUNT,
   createBlockTextureAtlas,
 } from "./blockTextureAtlas.ts";
+import { hexPrismShader } from "./hexPrism.wgsl.ts";
+import {
+  WEBGL_TERRAIN_FRAGMENT_SHADER,
+  WEBGL_TERRAIN_VERTEX_SHADER,
+} from "./WebGlRenderer.ts";
 
 describe("block texture atlas", () => {
   it("generates terrain tiles with water and leaf transparency", () => {
@@ -47,5 +52,15 @@ describe("block texture atlas", () => {
 
     expect(minimumU).toBeGreaterThan(tileMinimum);
     expect(maximumU).toBeLessThan(tileMaximum);
+  });
+
+  it("keeps dynamic material texture and vertex tint data renderer-compatible", () => {
+    expect(BlockTexture.DynamicMaterial).toBe(BLOCK_TEXTURE_TILE_COUNT - 1);
+    expect(hexPrismShader).toContain("@location(2) color: vec3<f32>");
+    expect(hexPrismShader).toContain("texel.rgb * input.color");
+    expect(WEBGL_TERRAIN_VERTEX_SHADER).toContain(
+      "layout(location = 2) in vec3 color",
+    );
+    expect(WEBGL_TERRAIN_FRAGMENT_SHADER).toContain("texel.rgb * vertex_color");
   });
 });

@@ -1,8 +1,18 @@
 import type { TerrainBiome } from "../geometry/terrainChunk.ts";
+import { biomeWeatherWeightsFor } from "../world/Biomes.ts";
 import type { WeatherKind } from "./Atmosphere.ts";
 
 export const WEATHER_CELL_SIZE = 96;
 export const WEATHER_CELL_TIME_BUCKET_SECONDS = 240;
+const WEATHER_KINDS = [
+  "clear",
+  "cloudy",
+  "rain",
+  "storm",
+  "snow",
+  "fog",
+  "sandstorm",
+] as const satisfies readonly WeatherKind[];
 
 export type WeatherCellInfluence = Readonly<{
   cellX: number;
@@ -197,85 +207,91 @@ function biomeWeatherVariant(
   roll: number,
   allowSandstorm: boolean,
 ): WeatherKind {
-  if (allowSandstorm && (biome === "desert" || biome === "badlands")) {
-    const threshold =
-      baseWeather === "storm"
-        ? 0.36
-        : baseWeather === "rain"
-          ? 0.42
-          : baseWeather === "sandstorm"
-            ? 0.16
-            : baseWeather === "fog"
-              ? 0.5
-              : baseWeather === "cloudy"
-                ? 0.56
-                : 0.9;
+  const weights = biomeWeatherWeightsFor(biome);
+  const weightedWeather = WEATHER_KINDS.map((weather) => ({
+    weather,
+    weight:
+      weather === "sandstorm" && !allowSandstorm
+        ? 0
+        : weights[weather] * baseWeatherPreference(baseWeather, weather),
+  }));
+  const totalWeight = weightedWeather.reduce(
+    (total, candidate) => total + candidate.weight,
+    0,
+  );
 
-    if (roll > threshold) {
-      return "sandstorm";
-    }
+  if (totalWeight <= 0) {
+    return baseWeather === "sandstorm" && !allowSandstorm
+      ? "cloudy"
+      : baseWeather;
+  }
 
-    if (baseWeather === "rain" || baseWeather === "snow") {
-      return roll < 0.34 ? "cloudy" : "clear";
+  let remaining = clamp01(roll) * totalWeight;
+
+  for (const candidate of weightedWeather) {
+    remaining -= candidate.weight;
+
+    if (remaining <= 0) {
+      return candidate.weather;
     }
   }
 
-  if (
-    (biome === "tundra" || biome === "snow" || biome === "alpine") &&
-    roll >
-      (baseWeather === "storm"
-        ? 0.36
-        : baseWeather === "rain"
-          ? 0.42
-          : baseWeather === "snow"
-            ? 0.18
-            : baseWeather === "cloudy" || baseWeather === "fog"
-              ? 0.72
-              : 0.92)
-  ) {
-    return "snow";
-  }
+  return weightedWeather.at(-1)?.weather ?? "clear";
+}
 
-  if (biome === "swamp") {
-    if (
-      (baseWeather === "clear" && roll > 0.84) ||
-      (baseWeather === "cloudy" && roll > 0.42) ||
-      (baseWeather === "rain" && roll > 0.76) ||
-      baseWeather === "fog"
-    ) {
-      return "fog";
-    }
-
-    if (baseWeather === "clear" && roll > 0.68) {
-      return "cloudy";
-    }
-  }
-
-  if (biome === "forest") {
-    if (baseWeather === "cloudy" && roll > 0.68) {
-      return "rain";
-    }
-
-    if (baseWeather === "clear" && roll > 0.86) {
-      return "fog";
-    }
+function baseWeatherPreference(
+  baseWeather: WeatherKind,
+  candidate: WeatherKind,
+): number {
+  if (baseWeather === candidate) {
+    return 3;
   }
 
   switch (baseWeather) {
     case "clear":
-      return roll > 0.92 ? "cloudy" : "clear";
+      return candidate === "cloudy" ? 0.75 : candidate === "fog" ? 0.35 : 0.18;
     case "cloudy":
-      return roll < 0.18 ? "clear" : roll > 0.86 ? "rain" : "cloudy";
+      return candidate === "clear"
+        ? 0.8
+        : candidate === "rain" || candidate === "fog" || candidate === "snow"
+          ? 0.95
+          : candidate === "sandstorm"
+            ? 0.85
+            : 0.45;
     case "rain":
-      return roll < 0.16 ? "cloudy" : roll > 0.86 ? "storm" : "rain";
+      return candidate === "cloudy"
+        ? 0.9
+        : candidate === "storm"
+          ? 1.2
+          : candidate === "sandstorm" || candidate === "snow"
+            ? 1.25
+            : 0.4;
     case "storm":
-      return roll < 0.24 ? "rain" : "storm";
+      return candidate === "rain"
+        ? 1.4
+        : candidate === "sandstorm" || candidate === "snow"
+          ? 1.1
+          : candidate === "cloudy"
+            ? 0.65
+            : 0.35;
     case "snow":
-      return roll < 0.18 ? "cloudy" : "snow";
+      return candidate === "cloudy"
+        ? 0.85
+        : candidate === "fog"
+          ? 0.55
+          : candidate === "rain"
+            ? 0.35
+            : 0.18;
     case "fog":
-      return roll < 0.18 ? "cloudy" : "fog";
+      return candidate === "cloudy"
+        ? 0.85
+        : candidate === "rain"
+          ? 0.7
+          : candidate === "snow"
+            ? 0.55
+            : 0.25;
     case "sandstorm":
-      return roll < 0.18 ? "cloudy" : "sandstorm";
+      return candidate === "clear" ? 0.75 : candidate === "cloudy" ? 0.7 : 0.22;
   }
 }
 

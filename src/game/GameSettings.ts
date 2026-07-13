@@ -1,6 +1,11 @@
 import { DEVICE_PROFILE } from "../platform/deviceProfile.ts";
 import { DEFAULT_WORLD_SEED } from "../world/InfiniteTerrain.ts";
 import { isCreativeMode, type GameMode } from "./gameMode.ts";
+import {
+  defaultStartingInventoryMode,
+  normalizeStartingInventoryMode,
+  type StartingInventoryMode,
+} from "./StartingInventory.ts";
 
 export type GameSettings = Readonly<{
   worldName: string;
@@ -12,6 +17,7 @@ export type GameSettings = Readonly<{
   enableDayNightCycle: boolean;
   debugOverlay: boolean;
   showMobileControls: boolean;
+  startingInventoryMode?: StartingInventoryMode;
 }>;
 
 const GAME_SETTINGS_STORAGE_KEY = "hexcraft.gameSettings.v1";
@@ -76,9 +82,11 @@ export function loadGameSettingsFromLocalStorage(): GameSettings {
       return defaults;
     }
 
+    const gameMode = validGameMode(parsed.gameMode, defaults.gameMode);
+
     return {
       worldName: stringSetting(parsed.worldName, defaults.worldName),
-      gameMode: validGameMode(parsed.gameMode, defaults.gameMode),
+      gameMode,
       worldSeed: finiteNumber(parsed.worldSeed, defaults.worldSeed),
       renderDistance: positiveInteger(
         parsed.renderDistance,
@@ -97,6 +105,10 @@ export function loadGameSettingsFromLocalStorage(): GameSettings {
       showMobileControls: booleanSetting(
         parsed.showMobileControls,
         defaults.showMobileControls,
+      ),
+      startingInventoryMode: normalizeStartingInventoryMode(
+        parsed.startingInventoryMode,
+        defaultStartingInventoryMode(gameMode),
       ),
     };
   } catch {

@@ -108,6 +108,18 @@ export type WorkbenchInteractionFailure = Readonly<{
 export type WorkbenchInteractionResult =
   WorkbenchInteractionSuccess | WorkbenchInteractionFailure;
 
+export type PlacedBlockInteraction =
+  | Readonly<{
+      kind: "material_combiner";
+      stationType: MaterialProcessingStationType;
+      position: VoxelPosition;
+    }>
+  | Readonly<{
+      kind: "workbench";
+      workbenchType: Exclude<WorkbenchType, "element_combiner">;
+      position: VoxelPosition;
+    }>;
+
 const FAILURE_MESSAGES: Record<BlockPlacementFailureReason, string> = {
   missing_target: "Aim at a block first.",
   out_of_reach: "Too far away.",
@@ -175,6 +187,40 @@ export function validateWorkbenchInteraction(
     ok: true,
     workbenchType,
     position: input.target.voxel,
+  };
+}
+
+export function placedBlockInteractionForTarget(
+  input: MaterialStationInteractionInput,
+): PlacedBlockInteraction | null {
+  const station = validateMaterialStationInteraction(input);
+
+  if (station.ok) {
+    return {
+      kind: "material_combiner",
+      stationType: station.stationType,
+      position: station.position,
+    };
+  }
+
+  const workbench = validateWorkbenchInteraction(input);
+
+  if (!workbench.ok) {
+    return null;
+  }
+
+  if (workbench.workbenchType === "element_combiner") {
+    return {
+      kind: "material_combiner",
+      stationType: "combiner",
+      position: workbench.position,
+    };
+  }
+
+  return {
+    kind: "workbench",
+    workbenchType: workbench.workbenchType,
+    position: workbench.position,
   };
 }
 

@@ -10,6 +10,7 @@ import { MaterialRegistry } from "../materials/MaterialRegistry.ts";
 import type { MaterialDefinition } from "../materials/MaterialTypes.ts";
 import {
   applyMaterialDropRules,
+  type MaterialDropDiscoveryContext,
   type MaterialDropInventory,
 } from "./MaterialDropRules.ts";
 
@@ -72,6 +73,44 @@ function discoveredIds(registry: MaterialRegistry): readonly string[] {
     .filter((material) => material.generation === 0)
     .map((material) => material.id)
     .sort();
+}
+
+function traceCountsForContext(
+  context: Omit<MaterialDropDiscoveryContext, "q" | "r">,
+  attempts = 192,
+): ReadonlyMap<string, number> {
+  const counts = new Map<string, number>();
+
+  for (let index = 0; index < attempts; index += 1) {
+    const registry = undiscoveredRegistry();
+    const inventory = createInventorySink();
+    const result = applyMaterialDropRules(
+      TerrainMaterial.Stone,
+      inventory,
+      registry,
+      {
+        discoveryContext: {
+          ...context,
+          q: index,
+          r: -index * 2,
+          config: { materialTraceDiscoveryChance: 1, ...context.config },
+        },
+      },
+    );
+
+    for (const materialId of result.traceMaterialIds) {
+      counts.set(materialId, (counts.get(materialId) ?? 0) + 1);
+    }
+  }
+
+  return counts;
+}
+
+function countTrace(
+  counts: ReadonlyMap<string, number>,
+  materialId: string,
+): number {
+  return counts.get(materialId) ?? 0;
 }
 
 describe("material drop rules", () => {
@@ -262,6 +301,115 @@ describe("material drop rules", () => {
       ),
     ).toHaveLength(1);
     expect(result.notifications[0]).toMatch(/^Found trace of /);
+  });
+
+  it("desert trace rules favor silicon and sulfur", () => {
+    const counts = traceCountsForContext({
+      biome: "desert",
+      level: TERRAIN_DEPTH_BLOCKS + 4,
+      worldSeed: 902,
+    });
+    const siliconAndSulfur =
+      countTrace(counts, "element:silicon") +
+      countTrace(counts, "element:sulfur");
+
+    expect(countTrace(counts, "element:silicon")).toBeGreaterThan(0);
+    expect(countTrace(counts, "element:sulfur")).toBeGreaterThan(0);
+    expect(siliconAndSulfur).toBeGreaterThan(
+      countTrace(counts, "element:sodium"),
+    );
+  });
+
+  it("cave trace rules favor crystal and radioactive discoveries", () => {
+    const counts = traceCountsForContext({
+      isCave: true,
+      level: TERRAIN_DEPTH_BLOCKS + 8,
+      worldSeed: 441,
+    });
+    const radioactive =
+      countTrace(counts, "element:uranium") +
+      countTrace(counts, "element:radium") +
+      countTrace(counts, "element:thorium");
+
+    expect(countTrace(counts, "element:silicon")).toBeGreaterThan(0);
+    expect(radioactive).toBeGreaterThan(0);
+    expect([...counts.keys()].sort()).toEqual(
+      expect.arrayContaining(["element:silicon", "element:uranium"]),
+    );
+  });
+
+  it("forest trace rules favor carbon and organic elements", () => {
+    const counts = traceCountsForContext({
+      biome: "forest",
+      level: TERRAIN_DEPTH_BLOCKS + 4,
+      worldSeed: 333,
+    });
+    const organic =
+      countTrace(counts, "element:carbon") +
+      countTrace(counts, "element:oxygen") +
+      countTrace(counts, "element:nitrogen") +
+      countTrace(counts, "element:phosphorus");
+
+    expect(countTrace(counts, "element:carbon")).toBeGreaterThan(
+      countTrace(counts, "element:sulfur"),
+    );
+    expect(organic).toBeGreaterThan(countTrace(counts, "element:sulfur"));
+  });
+
+  it("mountain trace rules favor iron, copper, and titanium", () => {
+    const counts = traceCountsForContext({
+      biome: "alpine",
+      isMountain: true,
+      level: TERRAIN_DEPTH_BLOCKS + 4,
+      worldSeed: 515,
+    });
+    const mountainMetals =
+      countTrace(counts, "element:iron") +
+      countTrace(counts, "element:copper") +
+      countTrace(counts, "element:titanium");
+
+    expect(mountainMetals).toBeGreaterThan(0);
+    expect(mountainMetals).toBeGreaterThan(
+      countTrace(counts, "element:hydrogen"),
+    );
+  });
+
+  it("repeat trace discovery does not duplicate item grants or notifications", () => {
+    const registry = undiscoveredRegistry();
+    const firstInventory = createInventorySink();
+    const secondInventory = createInventorySink();
+    const options = {
+      discoveryContext: {
+        biome: "desert" as const,
+        q: 9,
+        r: -4,
+        level: TERRAIN_DEPTH_BLOCKS + 4,
+        worldSeed: 909,
+        config: { materialTraceDiscoveryChance: 1 },
+      },
+    };
+    const first = applyMaterialDropRules(
+      TerrainMaterial.Stone,
+      firstInventory,
+      registry,
+      options,
+    );
+    const second = applyMaterialDropRules(
+      TerrainMaterial.Stone,
+      secondInventory,
+      registry,
+      options,
+    );
+
+    expect(first.traceMaterialIds).toHaveLength(1);
+    expect(first.notifications).toHaveLength(1);
+    expect(second.traceMaterialIds).toEqual([]);
+    expect(second.notifications).toEqual([]);
+    expect(
+      secondInventory.itemDrops.filter(([itemId]) =>
+        itemId.startsWith("generated-material:"),
+      ),
+    ).toEqual([]);
   });
 
   it("biome trace chance is deterministic for the same seed", () => {

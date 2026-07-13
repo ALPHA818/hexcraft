@@ -4,6 +4,11 @@ import {
   type GeneratedMaterialItemId,
   type MaterialItemResolver,
 } from "../items/MaterialItemResolver.ts";
+import {
+  materialVisualsForMaterial,
+  UNKNOWN_MATERIAL_VISUALS,
+  type MaterialVisuals,
+} from "../materials/MaterialVisuals.ts";
 import { voxelKey, type VoxelPosition } from "./voxelRules.ts";
 
 export const DYNAMIC_MATERIAL_BLOCK_ID = "dynamic_material_block";
@@ -68,6 +73,20 @@ export function dynamicMaterialBlockDisplayName(
     resolver?.getMaterialById(normalizedMaterialId)?.name ??
     UNKNOWN_DYNAMIC_MATERIAL_BLOCK_DISPLAY_NAME
   );
+}
+
+export function dynamicMaterialBlockVisuals(
+  materialId: string | null | undefined,
+  resolver: MaterialItemResolver | null | undefined,
+): MaterialVisuals {
+  const normalizedMaterialId = normalizeDynamicMaterialId(materialId);
+  const material = normalizedMaterialId
+    ? resolver?.getMaterialById(normalizedMaterialId)
+    : null;
+
+  return material
+    ? materialVisualsForMaterial(material)
+    : UNKNOWN_MATERIAL_VISUALS;
 }
 
 export function dynamicMaterialBlockDropItemId(

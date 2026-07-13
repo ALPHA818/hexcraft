@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import { getDefaultGameSettings } from "./GameSettings.ts";
 import {
   MaterialStorage,
+  materialMatchesStorageFilters,
   materialStorageEntries,
   materialStorageTags,
 } from "./MaterialStorage.ts";
@@ -35,6 +36,7 @@ function material(
   generation: number,
   rarity: MaterialDefinition["rarity"],
   tags: readonly string[],
+  stats: Partial<MaterialStats> = {},
 ): MaterialDefinition {
   return {
     id,
@@ -43,18 +45,34 @@ function material(
     parents: ["element:iron", "element:carbon"],
     rarity,
     ...BASE_STATS,
+    ...stats,
     tags,
     discoveredAt: 1,
   };
 }
 
 const materials = [
-  material("generated:g1:ember", "Embersteel", 1, "rare", ["metal", "fire"]),
-  material("generated:g3:crystal", "Glass Quartz", 3, "epic", ["crystal"]),
-  material("generated:g2:toxin", "Toxin Resin", 2, "uncommon", [
-    "organic",
-    "toxic",
-  ]),
+  material("generated:g1:ember", "Embersteel", 1, "rare", ["metal", "fire"], {
+    heat: 78,
+    hardness: 72,
+    metal: 82,
+  }),
+  material("generated:g3:crystal", "Glass Quartz", 3, "epic", ["crystal"], {
+    crystal: 88,
+    stability: 84,
+  }),
+  material(
+    "generated:g2:toxin",
+    "Toxin Resin",
+    2,
+    "uncommon",
+    ["organic", "toxic"],
+    {
+      toxicity: 88,
+      stability: 32,
+      organic: 78,
+    },
+  ),
 ] as const;
 
 const resolver = {
@@ -131,6 +149,10 @@ describe("material storage", () => {
         ?.materialId,
     ).toBe(materials[2].id);
     expect(
+      materialStorageEntries(storage, resolver, { sort: "count" })[0]
+        ?.materialId,
+    ).toBe(materials[2].id);
+    expect(
       materialStorageEntries(storage, resolver, { sort: "tag" }).map(
         (entry) => entry.materialId,
       ),
@@ -153,6 +175,67 @@ describe("material storage", () => {
         (entry) => entry.materialId,
       ),
     ).toEqual([materials[0].id]);
+  });
+
+  it("filters storage by search, rarity, generation, stability, and hazard", () => {
+    const storage = new MaterialStorage();
+
+    for (const entry of materials) {
+      storage.addMaterial(entry.id, 5);
+    }
+
+    expect(
+      materialStorageEntries(storage, resolver, { query: "quartz" }).map(
+        (entry) => entry.materialId,
+      ),
+    ).toEqual([materials[1].id]);
+    expect(
+      materialStorageEntries(storage, resolver, { rarity: "rare" }).map(
+        (entry) => entry.materialId,
+      ),
+    ).toEqual([materials[0].id]);
+    expect(
+      materialStorageEntries(storage, resolver, { generation: "gen3plus" }).map(
+        (entry) => entry.materialId,
+      ),
+    ).toEqual([materials[1].id]);
+    expect(
+      materialStorageEntries(storage, resolver, { stability: "unstable" }).map(
+        (entry) => entry.materialId,
+      ),
+    ).toEqual([materials[2].id]);
+    expect(
+      materialStorageEntries(storage, resolver, { hazard: "hot" }).map(
+        (entry) => entry.materialId,
+      ),
+    ).toEqual([materials[0].id]);
+    expect(
+      materialMatchesStorageFilters(materials[2].id, materials[2], {
+        tag: "toxic",
+        hazard: "toxic",
+      }),
+    ).toBe(true);
+  });
+
+  it("sorts storage by stability, danger, and usefulness", () => {
+    const storage = new MaterialStorage();
+
+    for (const entry of materials) {
+      storage.addMaterial(entry.id, 5);
+    }
+
+    expect(
+      materialStorageEntries(storage, resolver, { sort: "stability" })[0]
+        ?.materialId,
+    ).toBe(materials[1].id);
+    expect(
+      materialStorageEntries(storage, resolver, { sort: "danger" })[0]
+        ?.materialId,
+    ).toBe(materials[2].id);
+    expect(
+      materialStorageEntries(storage, resolver, { sort: "usefulness" })[0]
+        ?.materialId,
+    ).toBe(materials[0].id);
   });
 
   it("persists material storage through world save and load", async () => {

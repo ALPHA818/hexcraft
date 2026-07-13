@@ -80,7 +80,7 @@ export function workbenchForGeneratedMaterialRecipe(
     return "assembler";
   }
   if (kind === "stabilized_block") {
-    return "crystal";
+    return "assembler";
   }
   if (kind === "magic_core") {
     return "magic";

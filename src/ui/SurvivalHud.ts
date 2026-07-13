@@ -94,7 +94,55 @@ export class SurvivalHud {
     this.#warnings.hidden = text.length === 0;
     if (text !== this.#warningText) {
       this.#warningText = text;
-      this.#warnings.textContent = text;
+      this.#warnings.replaceChildren(
+        ...warnings.map((warning) => this.#createWarningChip(warning)),
+      );
     }
   }
+
+  #createWarningChip(warning: string): HTMLElement {
+    const chip = document.createElement("span");
+    const warningKind = warningKindForText(warning);
+
+    chip.className = `survival-warning-chip ${warningKind}`;
+    chip.dataset.icon = warningIconForKind(warningKind);
+    chip.textContent = warning;
+    return chip;
+  }
+}
+
+function warningKindForText(warning: string): string {
+  const normalized = warning.toLowerCase();
+
+  if (normalized.includes("radioactive")) {
+    return "radioactive";
+  }
+  if (normalized.includes("toxic")) {
+    return "toxic";
+  }
+  if (normalized.includes("burning") || normalized.includes("hot")) {
+    return "hot";
+  }
+  if (normalized.includes("unstable")) {
+    return "unstable";
+  }
+
+  return "generic";
+}
+
+function warningIconForKind(kind: string): string {
+  if (kind === "radioactive") {
+    return "RAD";
+  }
+  if (kind === "toxic") {
+    return "TOX";
+  }
+  if (kind === "hot") {
+    return "HOT";
+  }
+  if (kind === "unstable") {
+    return "UNS";
+  }
+
+  return "!";
 }

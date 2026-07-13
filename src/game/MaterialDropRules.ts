@@ -29,6 +29,8 @@ export type MaterialDropInventory = Readonly<{
 export type MaterialDropMaterialSource = Readonly<{
   getMaterialById: (materialId: string) => MaterialDefinition | null;
   discoverMaterial: (materialId: string) => boolean;
+  hasDiscovered?: (materialId: string) => boolean;
+  hasDiscoveredMaterial?: (materialId: string) => boolean;
 }>;
 
 export type MaterialDiscoveryRule = Readonly<{
@@ -49,6 +51,7 @@ export type MaterialDropRuleResult = Readonly<{
 export type MaterialDropDiscoveryContext = Readonly<{
   biome?: TerrainBiome | null;
   isCave?: boolean;
+  isMountain?: boolean;
   q: number;
   r: number;
   level: number;
@@ -126,6 +129,9 @@ function discoverySourcesForContext(
   if (context.isCave) {
     sources.push("cave");
   }
+  if (context.isMountain) {
+    sources.push("mountain");
+  }
 
   return sources;
 }
@@ -177,6 +183,15 @@ function addTraceDiscovery(
   const material = materials.getMaterialById(materialId);
 
   if (!material || material.generation !== 0) {
+    return;
+  }
+
+  const alreadyDiscovered =
+    materials.hasDiscovered?.(material.id) ??
+    materials.hasDiscoveredMaterial?.(material.id) ??
+    false;
+
+  if (alreadyDiscovered) {
     return;
   }
 

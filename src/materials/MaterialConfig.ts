@@ -6,6 +6,10 @@ export type MaterialConfig = Readonly<{
   unstableCombinationsCanFail: boolean;
   enableMaterialHazards: boolean;
   hazardDamageInterval: number;
+  hazardRadioactivityThreshold: number;
+  hazardToxicityThreshold: number;
+  hazardHeatThreshold: number;
+  hazardUnstableStabilityThreshold: number;
   materialTraceDiscoveryChance: number;
   seed: number;
   statMin: number;
@@ -21,6 +25,10 @@ export const DEFAULT_MATERIAL_CONFIG: MaterialConfig = {
   unstableCombinationsCanFail: false,
   enableMaterialHazards: true,
   hazardDamageInterval: 2,
+  hazardRadioactivityThreshold: 70,
+  hazardToxicityThreshold: 70,
+  hazardHeatThreshold: 82,
+  hazardUnstableStabilityThreshold: 25,
   materialTraceDiscoveryChance: 0.08,
   seed: 0x484558,
   statMin: 0,
@@ -58,6 +66,32 @@ export function normalizeMaterialConfig(
       Number.isFinite(config.hazardDamageInterval)
         ? Math.max(0.1, Number(config.hazardDamageInterval))
         : DEFAULT_MATERIAL_CONFIG.hazardDamageInterval,
+    hazardRadioactivityThreshold:
+      config.hazardRadioactivityThreshold !== undefined &&
+      Number.isFinite(config.hazardRadioactivityThreshold)
+        ? Math.max(
+            0,
+            Math.min(100, Number(config.hazardRadioactivityThreshold)),
+          )
+        : DEFAULT_MATERIAL_CONFIG.hazardRadioactivityThreshold,
+    hazardToxicityThreshold:
+      config.hazardToxicityThreshold !== undefined &&
+      Number.isFinite(config.hazardToxicityThreshold)
+        ? Math.max(0, Math.min(100, Number(config.hazardToxicityThreshold)))
+        : DEFAULT_MATERIAL_CONFIG.hazardToxicityThreshold,
+    hazardHeatThreshold:
+      config.hazardHeatThreshold !== undefined &&
+      Number.isFinite(config.hazardHeatThreshold)
+        ? Math.max(0, Math.min(100, Number(config.hazardHeatThreshold)))
+        : DEFAULT_MATERIAL_CONFIG.hazardHeatThreshold,
+    hazardUnstableStabilityThreshold:
+      config.hazardUnstableStabilityThreshold !== undefined &&
+      Number.isFinite(config.hazardUnstableStabilityThreshold)
+        ? Math.max(
+            0,
+            Math.min(100, Number(config.hazardUnstableStabilityThreshold)),
+          )
+        : DEFAULT_MATERIAL_CONFIG.hazardUnstableStabilityThreshold,
     materialTraceDiscoveryChance:
       config.materialTraceDiscoveryChance !== undefined &&
       Number.isFinite(config.materialTraceDiscoveryChance)

@@ -15,15 +15,18 @@ import type {
   TerrainStreamUpdate,
 } from "../world/InfiniteTerrain.ts";
 import type { GameSettings } from "./GameSettings.ts";
+import type { Equipment } from "./Equipment.ts";
 import type { Inventory } from "./Inventory.ts";
 import type { MaterialHazardState } from "./MaterialHazards.ts";
 import type { MaterialStorage } from "./MaterialStorage.ts";
 import type { MaterialTestingKit } from "./MaterialTestingKit.ts";
 import type { MaterialWorldController } from "./MaterialWorldController.ts";
+import type { ProgressionController } from "./ProgressionController.ts";
 import type { SurvivalController } from "./SurvivalController.ts";
 import type { SurvivalStatsController } from "./SurvivalStatsController.ts";
 import type { GameRenderer, RendererBackend } from "./GameBootstrap.ts";
 import type { WorkbenchController } from "./WorkbenchController.ts";
+import type { ObjectiveTracker } from "../ui/ObjectiveTracker.ts";
 
 export type ActiveGame = Readonly<{
   id: number;
@@ -35,11 +38,14 @@ export type ActiveGame = Readonly<{
   entityManager: EntityManager;
   entityRenderer: EntityRenderer;
   inventory: Inventory;
+  equipment: Equipment;
   workbenchController: WorkbenchController;
   materialWorld: MaterialWorldController;
   materialTestingKit: MaterialTestingKit;
   materialHazardState: MaterialHazardState;
   materialStorage: MaterialStorage;
+  progression: ProgressionController;
+  objectiveTracker: ObjectiveTracker;
   gameTime: GameTime;
   survival: SurvivalController;
   survivalStats: SurvivalStatsController;
@@ -68,6 +74,8 @@ export function captureGameSavePayload(game: ActiveGame) {
     metadata: game.metadata,
     player: { position: [x, y, z] as const },
     inventory: game.inventory.exportState(),
+    equipment: game.equipment.serialize(),
+    progression: game.progression.serialize(),
     materialCodex: game.materialWorld.serialize(),
     materialStorage: game.materialStorage.serialize(),
     gameTime: game.gameTime.snapshot(),

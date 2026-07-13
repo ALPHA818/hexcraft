@@ -1,5 +1,9 @@
 import type { GameSettings } from "../game/GameSettings.ts";
 import {
+  createStartingInventory,
+  startingInventoryModeForSettings,
+} from "../game/StartingInventory.ts";
+import {
   DEFAULT_MATERIAL_CONFIG,
   type MaterialConfig,
 } from "../materials/MaterialConfig.ts";
@@ -16,9 +20,11 @@ import {
   settingsFromMetadata,
   terrainEditChunkId,
   type LoadedWorldSave,
+  type SerializedEquipment,
   type SerializedInventory,
   type SerializedMaterialCodex,
   type SerializedMaterialStorage,
+  type SerializedProgression,
   type SerializedPlayerState,
   type TerrainEditChunkSave,
   type WorldRuntimeStateSave,
@@ -29,6 +35,8 @@ export type SaveWorldPayload = Readonly<{
   metadata: WorldSaveMetadata;
   player: SerializedPlayerState;
   inventory: SerializedInventory;
+  equipment?: SerializedEquipment;
+  progression?: SerializedProgression;
   gameTime?: SerializedGameTimeState;
   materialCodex?: SerializedMaterialCodex;
   materialStorage?: SerializedMaterialStorage;
@@ -61,7 +69,12 @@ function attachWorldIdToChunk(
 export function migrateWorldSaveData(save: LoadedWorldSave): LoadedWorldSave {
   const migratedSave = {
     ...save,
-    runtime: runtimeStateWithDefaults(save.metadata.id, save.runtime),
+    runtime: runtimeStateWithDefaults(
+      save.metadata.id,
+      save.runtime,
+      emptyMaterialCodexSave(),
+      save.metadata.gameMode,
+    ),
   };
 
   // Placeholder for future migrations. Version 1 is the initial format.
@@ -93,10 +106,16 @@ export class WorldSaveManager {
     now = Date.now(),
   ): Promise<LoadedWorldSave> {
     const metadata = metadataFromSettings(createWorldId(), settings, now);
-    const runtime = emptyRuntimeStateSave(
-      metadata.id,
-      createStartingMaterialCodex(settings, this.#materialConfig),
-    );
+    const runtime = {
+      ...emptyRuntimeStateSave(
+        metadata.id,
+        createStartingMaterialCodex(settings, this.#materialConfig),
+        settings.gameMode,
+      ),
+      inventory: createStartingInventory(
+        startingInventoryModeForSettings(settings),
+      ),
+    };
 
     await this.#database.putWorldMetadata(metadata);
     await this.#database.putWorldRuntimeState(runtime);
@@ -120,6 +139,7 @@ export class WorldSaveManager {
       worldId,
       await this.#database.getWorldRuntimeState(worldId),
       emptyMaterialCodexSave(),
+      metadata.gameMode,
     );
     const terrainEditChunks =
       await this.#database.getTerrainEditChunks(worldId);
@@ -138,6 +158,7 @@ export class WorldSaveManager {
     const metadata: WorldSaveMetadata = {
       ...payload.metadata,
       saveVersion: CURRENT_SAVE_VERSION,
+      startingInventoryMode: startingInventoryModeForSettings(payload.metadata),
       updatedAt: now,
     };
     const defaultMaterialCodex = createStartingMaterialCodex(
@@ -151,6 +172,17 @@ export class WorldSaveManager {
       worldId: metadata.id,
       player: payload.player,
       inventory: normalizeSerializedInventory(payload.inventory),
+      equipment: runtimeStateWithDefaults(metadata.id, {
+        equipment: payload.equipment ?? existingRuntime?.equipment,
+      }).equipment,
+      progression: runtimeStateWithDefaults(
+        metadata.id,
+        {
+          progression: payload.progression ?? existingRuntime?.progression,
+        },
+        emptyMaterialCodexSave(),
+        metadata.gameMode,
+      ).progression,
       gameTime: runtimeStateWithDefaults(metadata.id, {
         gameTime: payload.gameTime,
       }).gameTime,

@@ -1,5 +1,21 @@
 import type { GameSettings } from "../game/GameSettings.ts";
 import type { GameMode } from "../game/gameMode.ts";
+import {
+  emptyEquipmentSave,
+  normalizeSerializedEquipment,
+  type SerializedEquipment,
+} from "../game/Equipment.ts";
+import {
+  defaultStartingInventoryMode,
+  normalizeStartingInventoryMode,
+  startingInventoryModeForSettings,
+  type StartingInventoryMode,
+} from "../game/StartingInventory.ts";
+import {
+  createDefaultProgressionSave,
+  normalizeSerializedProgression,
+  type SerializedProgression,
+} from "../game/ProgressionController.ts";
 import { TerrainMaterial } from "../geometry/terrainChunk.ts";
 import {
   blockItemIdForMaterial,
@@ -34,6 +50,9 @@ import {
 } from "../world/GameTime.ts";
 import type { TerrainEdit } from "../world/InfiniteTerrain.ts";
 
+export type { SerializedEquipment } from "../game/Equipment.ts";
+export type { SerializedProgression } from "../game/ProgressionController.ts";
+
 export const CURRENT_SAVE_VERSION = 1;
 
 export type SaveVersion = typeof CURRENT_SAVE_VERSION;
@@ -50,6 +69,7 @@ export type WorldSaveMetadata = Readonly<{
   enableDayNightCycle: boolean;
   debugOverlay: boolean;
   showMobileControls: boolean;
+  startingInventoryMode?: StartingInventoryMode;
   createdAt: number;
   updatedAt: number;
 }>;
@@ -146,6 +166,8 @@ export type WorldRuntimeStateSave = Readonly<{
   worldId: string;
   player: SerializedPlayerState;
   inventory: SerializedInventory;
+  equipment: SerializedEquipment;
+  progression: SerializedProgression;
   gameTime: SerializedGameTimeState;
   materialCodex: SerializedMaterialCodex;
   materialStorage: SerializedMaterialStorage;
@@ -174,6 +196,7 @@ export function metadataFromSettings(
     enableDayNightCycle: settings.enableDayNightCycle,
     debugOverlay: settings.debugOverlay,
     showMobileControls: settings.showMobileControls,
+    startingInventoryMode: startingInventoryModeForSettings(settings),
     createdAt: timestamp,
     updatedAt: timestamp,
   };
@@ -192,6 +215,10 @@ export function settingsFromMetadata(
     enableDayNightCycle: metadata.enableDayNightCycle,
     debugOverlay: metadata.debugOverlay,
     showMobileControls: metadata.showMobileControls,
+    startingInventoryMode: normalizeStartingInventoryMode(
+      metadata.startingInventoryMode,
+      defaultStartingInventoryMode(metadata.gameMode),
+    ),
   };
 }
 
@@ -835,11 +862,14 @@ export function materialRegistryFromSerializedCodex(
 export function emptyRuntimeStateSave(
   worldId: string,
   materialCodex: SerializedMaterialCodex = emptyMaterialCodexSave(),
+  mode: GameMode = "survival",
 ): WorldRuntimeStateSave {
   return {
     worldId,
     player: { position: null },
     inventory: emptyInventorySave(),
+    equipment: emptyEquipmentSave(),
+    progression: createDefaultProgressionSave(mode),
     gameTime: defaultSerializedGameTimeState(),
     materialCodex,
     materialStorage: emptyMaterialStorageSave(),
@@ -908,6 +938,7 @@ export function runtimeStateWithDefaults(
   worldId: string,
   state: Partial<WorldRuntimeStateSave> | null | undefined,
   defaultMaterialCodex: SerializedMaterialCodex = emptyMaterialCodexSave(),
+  mode: GameMode = "survival",
 ): WorldRuntimeStateSave {
   const materialCodex = normalizeSerializedMaterialCodex(
     (state as { materialCodex?: unknown } | null | undefined)?.materialCodex ??
@@ -918,6 +949,13 @@ export function runtimeStateWithDefaults(
     worldId,
     player: state?.player ?? { position: null },
     inventory: normalizeSerializedInventory(state?.inventory),
+    equipment: normalizeSerializedEquipment(
+      (state as { equipment?: unknown } | null | undefined)?.equipment,
+    ),
+    progression: normalizeSerializedProgression(
+      (state as { progression?: unknown } | null | undefined)?.progression,
+      mode,
+    ),
     gameTime: normalizeSerializedGameTimeState(
       (state as { gameTime?: unknown } | null | undefined)?.gameTime,
     ),

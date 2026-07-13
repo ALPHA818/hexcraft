@@ -12,15 +12,13 @@ import {
   type TerrainColumn,
 } from "../geometry/terrainChunk.ts";
 import type { MaterialDefinition } from "../materials/MaterialTypes.ts";
-import {
-  materialVisualsForMaterial,
-  type MaterialVisuals,
-} from "../materials/MaterialVisuals.ts";
+import type { MaterialVisuals } from "../materials/MaterialVisuals.ts";
 import {
   DEFAULT_WORLD_SEED,
   generateTerrainColumn,
 } from "./TerrainGenerator.ts";
 import {
+  dynamicMaterialBlockVisuals,
   dynamicMaterialVoxelKey,
   isDynamicMaterialBlock,
   normalizeDynamicMaterialId,
@@ -1296,9 +1294,7 @@ export class InfiniteTerrain {
   }
 
   #visualForDynamicMaterialId(materialId: string): MaterialVisuals | null {
-    const material = this.#materialResolver?.getMaterialById(materialId);
-
-    return material ? materialVisualsForMaterial(material) : null;
+    return dynamicMaterialBlockVisuals(materialId, this.#materialResolver);
   }
 
   #dynamicMaterialVisualRecord():

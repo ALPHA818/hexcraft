@@ -37,6 +37,7 @@ describe("debug overlay", () => {
         localWeather: "fog",
         localIntensity: 0.62,
         wind: [0.72, -0.31],
+        cloudWorldOffset: [123.45, -67.89],
         cloudSample: [123.45, -67.89],
         particleCount: 144,
       },
@@ -52,13 +53,21 @@ describe("debug overlay", () => {
     expect(rows).toContainEqual(["Audio update ms", "0.2"]);
     expect(rows).toContainEqual(["Axial", "q 2, r -3"]);
     expect(rows).toContainEqual(["Biome", "forest"]);
+    expect(rows).toContainEqual([
+      "Weather grid debug",
+      "F3 overlay · cell 4, -2",
+    ]);
     expect(rows).toContainEqual(["Weather zone", "fog 0.62 in cell 4, -2"]);
     expect(rows).toContainEqual(["Weather cell", "4, -2 @ 3"]);
+    expect(rows).toContainEqual(["Weather cell id", "4, -2"]);
     expect(rows).toContainEqual(["Cell weather", "rain"]);
     expect(rows).toContainEqual(["Local weather", "fog"]);
     expect(rows).toContainEqual(["Local intensity", "0.62"]);
+    expect(rows).toContainEqual(["Blended intensity", "0.62"]);
     expect(rows).toContainEqual(["Wind direction", "0.72, -0.31"]);
+    expect(rows).toContainEqual(["Cloud world offset", "123.5, -67.9"]);
     expect(rows).toContainEqual(["Cloud sample", "123.5, -67.9"]);
+    expect(rows).toContainEqual(["Particle count", "144"]);
     expect(rows).toContainEqual(["Weather particles", "144"]);
     expect(rows).toContainEqual(["Loaded chunks", "25"]);
     expect(rows).toContainEqual(["Mesh faces", "12,345"]);

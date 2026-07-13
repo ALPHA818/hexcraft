@@ -8,6 +8,7 @@ import {
   type ItemId,
 } from "../items/ItemRegistry.ts";
 import {
+  materialBlockTintCssForVisuals,
   materialVisualsForMaterial,
   UNKNOWN_MATERIAL_VISUALS,
 } from "../materials/MaterialVisuals.ts";
@@ -449,6 +450,10 @@ export class CreativeCatalogPanel {
       element.classList.add("generated-material-visual");
       element.style.setProperty("--item-base-color", visuals.baseColor);
       element.style.setProperty("--item-accent-color", visuals.accentColor);
+      element.style.setProperty(
+        "--item-block-tint",
+        materialBlockTintCssForVisuals(visuals),
+      );
       element.style.setProperty(
         "--item-emissive-strength",
         String(visuals.emissiveStrength),

@@ -19,7 +19,7 @@ import { lightViewProjection } from "./lighting.ts";
 const SHADOW_MAP_SIZE = DEVICE_PROFILE.shadowMapSize;
 const ATLAS_TILE_COUNT = BLOCK_TEXTURE_TILE_COUNT;
 
-const VERTEX_SHADER = `#version 300 es
+export const WEBGL_TERRAIN_VERTEX_SHADER = `#version 300 es
 precision highp float;
 
 layout(location = 0) in vec3 position;
@@ -48,7 +48,7 @@ void main() {
 }
 `;
 
-const FRAGMENT_SHADER = `#version 300 es
+export const WEBGL_TERRAIN_FRAGMENT_SHADER = `#version 300 es
 precision highp float;
 
 in vec3 world_normal;
@@ -236,8 +236,16 @@ function compileShader(
 }
 
 function createProgram(gl: WebGL2RenderingContext): WebGLProgram {
-  const vertexShader = compileShader(gl, gl.VERTEX_SHADER, VERTEX_SHADER);
-  const fragmentShader = compileShader(gl, gl.FRAGMENT_SHADER, FRAGMENT_SHADER);
+  const vertexShader = compileShader(
+    gl,
+    gl.VERTEX_SHADER,
+    WEBGL_TERRAIN_VERTEX_SHADER,
+  );
+  const fragmentShader = compileShader(
+    gl,
+    gl.FRAGMENT_SHADER,
+    WEBGL_TERRAIN_FRAGMENT_SHADER,
+  );
   const program = gl.createProgram();
 
   if (!program) {

@@ -3,8 +3,10 @@ import { describe, expect, it } from "vitest";
 import {
   materialAffinitiesForBiome,
   materialAffinitiesForSource,
+  materialAffinitiesForSources,
   materialTraceDiscoveryForEvent,
 } from "./MaterialBiomeAffinities.ts";
+import type { TerrainBiome } from "../geometry/terrainChunk.ts";
 
 function materialIds(
   affinities: ReturnType<typeof materialAffinitiesForBiome>,
@@ -13,11 +15,53 @@ function materialIds(
 }
 
 describe("material biome affinities", () => {
+  it("defines affinity for every biome", () => {
+    const biomes = [
+      "grassland",
+      "forest",
+      "desert",
+      "tundra",
+      "alpine",
+      "snow",
+      "beach",
+      "swamp",
+      "badlands",
+    ] as const satisfies readonly TerrainBiome[];
+
+    for (const biome of biomes) {
+      expect(materialAffinitiesForBiome(biome).length).toBeGreaterThan(0);
+    }
+  });
+
   it("gives deserts silicon and sulfur affinity", () => {
     const ids = materialIds(materialAffinitiesForBiome("desert"));
 
     expect(ids).toContain("element:silicon");
     expect(ids).toContain("element:sulfur");
+  });
+
+  it("gives mountains iron, copper, and titanium affinity", () => {
+    const ids = materialIds(materialAffinitiesForSource("mountain"));
+
+    expect(ids).toEqual(
+      expect.arrayContaining([
+        "element:iron",
+        "element:copper",
+        "element:titanium",
+      ]),
+    );
+  });
+
+  it("gives snow and alpine frost-oriented affinity", () => {
+    const snowIds = materialIds(materialAffinitiesForBiome("snow"));
+    const alpine = materialAffinitiesForSources(["alpine", "mountain"]);
+
+    expect(snowIds).toEqual(
+      expect.arrayContaining(["element:oxygen", "element:hydrogen"]),
+    );
+    expect(alpine.some((affinity) => affinity.tags.includes("frost"))).toBe(
+      true,
+    );
   });
 
   it("gives caves crystal and uranium affinity", () => {

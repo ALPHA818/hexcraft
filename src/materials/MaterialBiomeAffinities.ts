@@ -6,7 +6,7 @@ import {
 } from "./MaterialConfig.ts";
 import { stableHashFloat } from "./MaterialHash.ts";
 
-export type MaterialAffinitySource = TerrainBiome | "cave";
+export type MaterialAffinitySource = TerrainBiome | "cave" | "mountain";
 
 export type MaterialAffinityRule = Readonly<{
   source: MaterialAffinitySource;
@@ -35,30 +35,37 @@ const MATERIAL_AFFINITIES_BY_SOURCE = {
     affinity("grassland", "element:nitrogen", ["soil", "organic"], 2),
     affinity("grassland", "element:oxygen", ["air", "organic"], 2),
     affinity("grassland", "element:carbon", ["organic"], 1),
+    affinity("grassland", "element:phosphorus", ["nutrient", "organic"], 1),
   ],
   forest: [
-    affinity("forest", "element:carbon", ["organic", "wood"], 4),
+    affinity("forest", "element:carbon", ["organic", "wood"], 5),
     affinity("forest", "element:oxygen", ["organic", "air"], 3),
     affinity("forest", "element:nitrogen", ["organic", "soil"], 2),
     affinity("forest", "element:phosphorus", ["organic", "nutrient"], 1),
+    affinity("forest", "element:sulfur", ["organic", "toxic"], 0.5),
   ],
   desert: [
-    affinity("desert", "element:silicon", ["silica", "sand"], 4),
-    affinity("desert", "element:sulfur", ["mineral", "hot"], 2),
+    affinity("desert", "element:silicon", ["silica", "sand"], 6),
+    affinity("desert", "element:sulfur", ["mineral", "hot"], 3),
     affinity("desert", "element:sodium", ["salt", "mineral"], 1),
   ],
   tundra: [
-    affinity("tundra", "element:oxygen", ["ice", "air"], 3),
+    affinity("tundra", "element:oxygen", ["ice", "air", "frost"], 4),
+    affinity("tundra", "element:hydrogen", ["ice", "frost"], 3),
     affinity("tundra", "element:nitrogen", ["air"], 2),
     affinity("tundra", "element:silicon", ["frozen-mineral"], 1),
   ],
   alpine: [
+    affinity("alpine", "element:oxygen", ["frost", "ice"], 3),
+    affinity("alpine", "element:hydrogen", ["frost", "ice"], 2),
     affinity("alpine", "element:silicon", ["crystal", "stone"], 3),
     affinity("alpine", "element:iron", ["metal", "stone"], 2),
     affinity("alpine", "element:aluminium", ["metal", "stone"], 1),
+    affinity("alpine", "element:titanium", ["metal", "mountain"], 1),
   ],
   snow: [
-    affinity("snow", "element:oxygen", ["ice", "air"], 3),
+    affinity("snow", "element:oxygen", ["ice", "air", "frost"], 5),
+    affinity("snow", "element:hydrogen", ["ice", "frost"], 4),
     affinity("snow", "element:nitrogen", ["air"], 2),
     affinity("snow", "element:silicon", ["frozen-mineral"], 1),
   ],
@@ -68,19 +75,31 @@ const MATERIAL_AFFINITIES_BY_SOURCE = {
     affinity("beach", "element:chlorine", ["salt"], 2),
   ],
   swamp: [
-    affinity("swamp", "element:carbon", ["organic", "peat"], 3),
+    affinity("swamp", "element:carbon", ["organic", "peat"], 4),
     affinity("swamp", "element:oxygen", ["organic", "water"], 2),
-    affinity("swamp", "element:sulfur", ["toxic", "mineral"], 2),
-    affinity("swamp", "element:nitrogen", ["organic"], 1),
+    affinity("swamp", "element:sulfur", ["toxic", "mineral"], 3),
+    affinity("swamp", "element:nitrogen", ["organic"], 2),
+    affinity("swamp", "element:phosphorus", ["organic", "nutrient"], 1),
+    affinity("swamp", "element:arsenic", ["toxic", "rare"], 0.5),
   ],
   badlands: [
     affinity("badlands", "element:iron", ["metal", "oxidized"], 3),
+    affinity("badlands", "element:copper", ["metal", "oxidized"], 2),
+    affinity("badlands", "element:titanium", ["metal", "rare"], 1),
     affinity("badlands", "element:sulfur", ["mineral", "hot"], 2),
     affinity("badlands", "element:silicon", ["silica", "stone"], 2),
   ],
   cave: [
-    affinity("cave", "element:silicon", ["crystal", "mineral"], 3),
+    affinity("cave", "element:silicon", ["crystal", "mineral"], 4),
     affinity("cave", "element:uranium", ["radioactive", "rare"], 1),
+    affinity("cave", "element:radium", ["radioactive", "rare"], 0.5),
+    affinity("cave", "element:thorium", ["radioactive", "rare"], 0.5),
+  ],
+  mountain: [
+    affinity("mountain", "element:iron", ["metal", "mountain"], 4),
+    affinity("mountain", "element:copper", ["metal", "mountain"], 3),
+    affinity("mountain", "element:titanium", ["metal", "mountain"], 2),
+    affinity("mountain", "element:silicon", ["crystal", "stone"], 1),
   ],
 } as const satisfies Record<
   MaterialAffinitySource,

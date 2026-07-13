@@ -6,7 +6,7 @@ This document describes how procedural materials connect to the active Hexcraft 
 
 `MaterialWorldController` is the runtime boundary for one active world session. It creates the per-world `MaterialRegistry`, registers the 118 base elements, restores generated materials, restores recipe history, restores discovered material ids, restores unlocked research tiers, and serializes the codex back into the world save.
 
-`main.ts` creates one `MaterialWorldController` per loaded world and stores it on `ActiveGame` through `GameSession.ts`. Saving uses `captureGameSavePayload(...)`, which serializes the material codex and material storage with the rest of runtime state.
+`GameSessionFactory` creates one `MaterialWorldController` per loaded world and stores it on `ActiveGame` through `GameSession.ts`. Saving uses `captureGameSavePayload(...)`, which serializes the material codex and material storage with the rest of runtime state.
 
 ## Gameplay Entry Points
 
@@ -40,6 +40,8 @@ Material persistence stays in the existing world save database. There is no seco
 - `materialCodex`
 - `materialStorage`
 - `inventory`
+- `equipment`
+- `progression`
 - `gameTime`
 - `player`
 - `worldId`
@@ -72,8 +74,13 @@ Survival mode:
 
 ## Main Runtime Split
 
-`main.ts` remains the orchestration layer. Shared runtime pieces are split into:
+`main.ts` is intentionally tiny: it imports CSS, creates `GameApp`, and starts it. Shared runtime pieces are split into:
 
 - `src/game/GameBootstrap.ts` for DOM bootstrap and renderer fallback creation.
+- `src/game/GameApp.ts` for app boot, menu actions, settings, and world creation/loading.
+- `src/game/GameSessionFactory.ts` for building `ActiveGame` from `LoadedWorldSave`.
 - `src/game/GameSession.ts` for active session types and save payload capture.
 - `src/game/GameLoop.ts` for frame-loop terrain streaming, timing, hazards, audio, entities, and debug snapshots.
+- `src/game/GamePanelWiring.ts` for gameplay panel instances and session wiring.
+- `src/game/GameSaveCoordinator.ts` for save queue, autosave, and page lifecycle saves.
+- `src/game/GameRuntimeEvents.ts` for keybinds and pointer-lock escape behavior.

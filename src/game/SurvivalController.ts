@@ -11,6 +11,7 @@ import {
   DEFAULT_WORLD_SEED,
   type InfiniteTerrain,
   terrainHeightAt,
+  terrainProfileAt,
   type TerrainStreamUpdate,
   type VoxelRaycastHit,
 } from "../world/InfiniteTerrain.ts";
@@ -26,9 +27,8 @@ import {
   canBreakBlockMaterial,
 } from "./BlockBreakingController.ts";
 import {
+  placedBlockInteractionForTarget,
   validateBlockPlacement,
-  validateMaterialStationInteraction,
-  validateWorkbenchInteraction,
   type BlockPlacementFailure,
   type BlockPlacementFailureReason,
 } from "./BlockPlacementRules.ts";
@@ -77,6 +77,7 @@ export class SurvivalController {
   readonly #audio: AudioManager | null;
   readonly #materialWorld: MaterialWorldController | null;
   readonly #onMaterialDiscovery: () => void;
+  readonly #onMaterialDiscovered: (materialId: string) => void;
   readonly #openMaterialStation: (
     stationType: MaterialProcessingStationType,
   ) => void;
@@ -118,6 +119,7 @@ export class SurvivalController {
     materialDiscoveryConfig: Partial<
       Pick<MaterialConfig, "materialTraceDiscoveryChance" | "seed">
     > = DEFAULT_MATERIAL_CONFIG,
+    onMaterialDiscovered: (materialId: string) => void = () => {},
   ) {
     const crosshair = document.querySelector<HTMLElement>("#crosshair");
     if (!crosshair) {
@@ -134,6 +136,7 @@ export class SurvivalController {
     this.#audio = audio;
     this.#materialWorld = materialWorld;
     this.#onMaterialDiscovery = onMaterialDiscovery;
+    this.#onMaterialDiscovered = onMaterialDiscovered;
     this.#openMaterialStation = openMaterialStation;
     this.#openWorkbench = openWorkbench;
     this.#worldSeed = worldSeed;
@@ -266,6 +269,11 @@ export class SurvivalController {
           discoveryContext: {
             biome: biomeAt(target.voxel.q, target.voxel.r, this.#worldSeed),
             isCave: this.#isNearNaturalCave(target.voxel),
+            isMountain: terrainProfileAt(
+              target.voxel.q,
+              target.voxel.r,
+              this.#worldSeed,
+            ).mountain,
             q: target.voxel.q,
             r: target.voxel.r,
             level: target.voxel.level,
@@ -280,6 +288,9 @@ export class SurvivalController {
       }
 
       if (drops.discoveredMaterialIds.length > 0) {
+        for (const materialId of drops.discoveredMaterialIds) {
+          this.#onMaterialDiscovered(materialId);
+        }
         this.#onMaterialDiscovery();
       }
       this.#inventory.damageSelectedTool();
@@ -337,10 +348,7 @@ export class SurvivalController {
       return;
     }
 
-    if (
-      this.#interactWithTargetWorkbench() ||
-      this.#interactWithTargetStation()
-    ) {
+    if (this.#interactWithTargetBlock()) {
       return;
     }
 
@@ -406,36 +414,20 @@ export class SurvivalController {
       .catch((error) => console.error("Terrain remesh failed.", error));
   }
 
-  #interactWithTargetStation(): boolean {
-    const interaction = validateMaterialStationInteraction({
+  #interactWithTargetBlock(): boolean {
+    const interaction = placedBlockInteractionForTarget({
       target: this.#target,
     });
 
-    if (!interaction.ok) {
+    if (!interaction) {
       return false;
     }
 
     this.stopMining();
-    this.#openMaterialStation(interaction.stationType);
-    return true;
-  }
-
-  #interactWithTargetWorkbench(): boolean {
-    const interaction = validateWorkbenchInteraction({
-      target: this.#target,
-    });
-
-    if (!interaction.ok) {
-      return false;
-    }
-
-    this.stopMining();
-    const target = workbenchInteractionOpenTarget(interaction.workbenchType);
-
-    if (target.kind === "material_combiner") {
-      this.#openMaterialStation(target.stationType);
+    if (interaction.kind === "material_combiner") {
+      this.#openMaterialStation(interaction.stationType);
     } else {
-      this.#openWorkbench(target.workbenchType);
+      this.#openWorkbench(interaction.workbenchType);
     }
     return true;
   }

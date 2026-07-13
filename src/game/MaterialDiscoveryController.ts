@@ -21,6 +21,7 @@ export type MaterialDiscoveryControllerOptions = Readonly<{
   materialWorld: MaterialWorldController;
   inventory: MaterialDiscoveryInventory;
   onMaterialDiscovered?: () => void;
+  onMaterialsCombined?: (result: MaterialDiscoveryCombineSuccess) => void;
   onSaveRequested?: () => void;
 }>;
 
@@ -106,12 +107,16 @@ export class MaterialDiscoveryController {
   readonly #materialWorld: MaterialWorldController;
   readonly #inventory: MaterialDiscoveryInventory;
   readonly #onMaterialDiscovered: () => void;
+  readonly #onMaterialsCombined: (
+    result: MaterialDiscoveryCombineSuccess,
+  ) => void;
   readonly #onSaveRequested: () => void;
 
   constructor(options: MaterialDiscoveryControllerOptions) {
     this.#materialWorld = options.materialWorld;
     this.#inventory = options.inventory;
     this.#onMaterialDiscovered = options.onMaterialDiscovered ?? (() => {});
+    this.#onMaterialsCombined = options.onMaterialsCombined ?? (() => {});
     this.#onSaveRequested = options.onSaveRequested ?? (() => {});
   }
 
@@ -259,7 +264,7 @@ export class MaterialDiscoveryController {
     }
     this.#onSaveRequested();
 
-    return {
+    const success = {
       ok: true,
       material: result.material,
       recipeKey: result.recipeKey,
@@ -267,7 +272,10 @@ export class MaterialDiscoveryController {
       discovered,
       consumedIngredients,
       message: `Created ${result.material.name}.`,
-    };
+    } as const satisfies MaterialDiscoveryCombineSuccess;
+
+    this.#onMaterialsCombined(success);
+    return success;
   }
 
   #consumeIngredients(ingredients: readonly RequiredIngredient[]): boolean {

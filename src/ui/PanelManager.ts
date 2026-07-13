@@ -5,6 +5,7 @@ export type GameplayPanelId =
   | "material-combiner"
   | "material-research"
   | "material-storage"
+  | "equipment"
   | "workbench";
 
 export type ManagedPanel = Readonly<{

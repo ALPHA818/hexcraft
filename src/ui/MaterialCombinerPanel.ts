@@ -24,6 +24,7 @@ export type MaterialCombinerPanelSession = Readonly<{
   materialWorld: MaterialWorldController;
   inventory: MaterialDiscoveryInventory;
   onMaterialDiscovered?: () => void;
+  onMaterialsCombined?: () => void;
   onSaveRequested?: () => void;
 }>;
 

@@ -116,8 +116,8 @@ describe("generated material recipes", () => {
       expect.arrayContaining([
         expect.objectContaining({
           generatedRecipeKind: "stabilized_block",
-          requiredWorkbench: "crystal",
-          workbenchType: "crystal",
+          requiredWorkbench: "assembler",
+          workbenchType: "assembler",
           requiredMaterialCapabilities: { buildingGrade: 62 },
           outputs: [{ itemId: itemIdForMaterial(material.id), count: 1 }],
         }),

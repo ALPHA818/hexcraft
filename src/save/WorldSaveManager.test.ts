@@ -5,12 +5,21 @@ import {
   TERRAIN_DEPTH_BLOCKS,
   TerrainMaterial,
 } from "../geometry/terrainChunk.ts";
-import { itemIdForMaterial } from "../items/ItemRegistry.ts";
+import {
+  itemIdForMaterial,
+  modifiedToolItemId,
+} from "../items/ItemRegistry.ts";
+import { MaterialCodex } from "../materials/MaterialCodex.ts";
 import { DEFAULT_MATERIAL_CONFIG } from "../materials/MaterialConfig.ts";
 import { BASE_ELEMENT_COUNT } from "../materials/BaseElements.ts";
 import { combineMaterials } from "../materials/MaterialCombiner.ts";
 import { MaterialRegistry } from "../materials/MaterialRegistry.ts";
 import type { MaterialDefinition } from "../materials/MaterialTypes.ts";
+import {
+  dynamicMaterialBlockDisplayName,
+  dynamicMaterialBlockDropItemId,
+  UNKNOWN_DYNAMIC_MATERIAL_BLOCK_DISPLAY_NAME,
+} from "../world/DynamicMaterialBlocks.ts";
 import {
   generateTerrainColumn,
   InfiniteTerrain,
@@ -170,6 +179,25 @@ describe("world save manager", () => {
     expect(loaded?.runtime.materialCodex.generatedMaterials).toEqual([]);
   });
 
+  it("old save without materialStorage loads safely", async () => {
+    const database = new MemorySaveDatabase();
+    const manager = new WorldSaveManager(database);
+    const created = await manager.createWorld(getDefaultGameSettings(), 1000);
+
+    await database.putWorldRuntimeState({
+      worldId: created.metadata.id,
+      player: { position: [2, 4, 6] },
+      inventory: created.runtime.inventory,
+      gameTime: created.runtime.gameTime,
+      materialCodex: created.runtime.materialCodex,
+    } as unknown as WorldRuntimeStateSave);
+
+    const loaded = await manager.loadWorld(created.metadata.id);
+
+    expect(loaded?.runtime.player.position).toEqual([2, 4, 6]);
+    expect(loaded?.runtime.materialStorage.materials).toEqual([]);
+  });
+
   it("migrates old hotbar-only saves with inventory.slots", async () => {
     const database = new MemorySaveDatabase();
     const manager = new WorldSaveManager(database);
@@ -184,6 +212,13 @@ describe("world save manager", () => {
           { itemId: "block:dirt", count: 4 },
           { itemId: "tool:pickaxe", count: 1, durability: 37 },
           { itemId: "block:wood", count: 3 },
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          { itemId: "block:stone", count: 6 },
         ],
       },
       gameTime: created.runtime.gameTime,
@@ -206,6 +241,10 @@ describe("world save manager", () => {
     expect(loaded?.runtime.inventory.hotbar?.[2]).toEqual({
       itemId: "block:wood",
       count: 3,
+    });
+    expect(loaded?.runtime.inventory.backpack?.[0]).toEqual({
+      itemId: "block:stone",
+      count: 6,
     });
   });
 
@@ -353,6 +392,56 @@ describe("world save manager", () => {
     );
   });
 
+  it("loads unknown dynamic material block metadata safely", async () => {
+    const manager = createManager();
+    const created = await manager.createWorld(getDefaultGameSettings(), 1000);
+    const terrain = new InfiniteTerrain(created.metadata.seed, 4, 1);
+    const position = { q: -2, r: 1, level: TERRAIN_DEPTH_BLOCKS + 14 };
+    const unknownMaterialId = "generated:missing-block-material";
+    const registry = materialRegistry();
+
+    terrain.update({ x: 0, z: 0 });
+    terrain.setBlock(
+      position,
+      TerrainMaterial.DynamicMaterial,
+      unknownMaterialId,
+    );
+
+    await manager.saveWorld({
+      metadata: created.metadata,
+      player: { position: null },
+      inventory: created.runtime.inventory,
+      terrainEditChunks: terrain.exportTerrainEditChunks(),
+    });
+
+    const loaded = await manager.loadWorld(created.metadata.id);
+    const regenerated = new InfiniteTerrain(
+      created.metadata.seed,
+      4,
+      1,
+      registry,
+    );
+
+    regenerated.importTerrainEditChunks(loaded?.terrainEditChunks ?? []);
+
+    expect(regenerated.materialAt(position.q, position.r, position.level)).toBe(
+      TerrainMaterial.DynamicMaterial,
+    );
+    expect(regenerated.dynamicMaterialIdAt(position)).toBe(unknownMaterialId);
+    expect(
+      dynamicMaterialBlockDisplayName(
+        regenerated.dynamicMaterialIdAt(position),
+        registry,
+      ),
+    ).toBe(UNKNOWN_DYNAMIC_MATERIAL_BLOCK_DISPLAY_NAME);
+    expect(
+      dynamicMaterialBlockDropItemId(
+        regenerated.dynamicMaterialIdAt(position),
+        registry,
+      ),
+    ).toBeNull();
+  });
+
   it("saves and loads workbench block terrain edits", async () => {
     const manager = createManager();
     const created = await manager.createWorld(getDefaultGameSettings(), 1000);
@@ -420,6 +509,173 @@ describe("world save manager", () => {
       dayNumber: 9,
       paused: true,
     });
+  });
+
+  it("round-trips current game systems through save and load", async () => {
+    const manager = createManager();
+    const created = await manager.createWorld(getDefaultGameSettings(), 1000);
+    const registry = materialRegistry();
+    const iron = materialOrThrow(registry, "element:iron");
+    const carbon = materialOrThrow(registry, "element:carbon");
+    const result = combineMaterials(iron, carbon, registry);
+    const terrain = new InfiniteTerrain(created.metadata.seed, 4, 1, registry);
+    const dynamicBlockPosition = {
+      q: 0,
+      r: 0,
+      level: TERRAIN_DEPTH_BLOCKS + 18,
+    };
+    const workbenchPosition = {
+      q: 1,
+      r: -1,
+      level: TERRAIN_DEPTH_BLOCKS + 18,
+    };
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) {
+      return;
+    }
+
+    const generatedMaterialId = result.material.id;
+    const generatedItemId = itemIdForMaterial(generatedMaterialId);
+    const modifiedItemId = modifiedToolItemId(
+      "tool:pickaxe",
+      generatedMaterialId,
+    );
+    const materialCodex = serializeMaterialCodex(registry, [
+      "metallurgical",
+      "crystalline",
+    ]);
+
+    terrain.update({ x: 0, z: 0 });
+    terrain.setBlock(
+      dynamicBlockPosition,
+      TerrainMaterial.DynamicMaterial,
+      generatedMaterialId,
+    );
+    terrain.setBlock(workbenchPosition, TerrainMaterial.AssemblerWorkbench);
+
+    await manager.saveWorld({
+      metadata: created.metadata,
+      player: { position: [8, 32, -4] },
+      inventory: {
+        selectedHotbarIndex: 4,
+        hotbar: [
+          { itemId: "block:dirt", count: 11 },
+          null,
+          { itemId: modifiedItemId, count: 1, durability: 33 },
+          null,
+          { itemId: "block:basic_workbench", count: 1 },
+        ],
+        backpack: [
+          { itemId: "block:stone", count: 12 },
+          { itemId: generatedItemId, count: 5 },
+        ],
+      },
+      materialCodex,
+      materialStorage: {
+        materials: [
+          { materialId: generatedMaterialId, quantity: 9 },
+          { materialId: "generated:unknown-storage", quantity: 3 },
+        ],
+      },
+      terrainEditChunks: terrain.exportTerrainEditChunks(),
+    });
+
+    const loaded = await manager.loadWorld(created.metadata.id);
+
+    expect(loaded?.runtime.player.position).toEqual([8, 32, -4]);
+    expect(loaded?.runtime.inventory.selectedHotbarIndex).toBe(4);
+    expect(loaded?.runtime.inventory.hotbar?.[0]).toEqual({
+      itemId: "block:dirt",
+      count: 11,
+    });
+    expect(loaded?.runtime.inventory.hotbar?.[2]).toEqual({
+      itemId: modifiedItemId,
+      count: 1,
+      durability: 33,
+    });
+    expect(loaded?.runtime.inventory.hotbar?.[4]).toEqual({
+      itemId: "block:basic_workbench",
+      count: 1,
+    });
+    expect(loaded?.runtime.inventory.backpack?.[0]).toEqual({
+      itemId: "block:stone",
+      count: 12,
+    });
+    expect(loaded?.runtime.inventory.backpack?.[1]).toEqual({
+      itemId: generatedItemId,
+      count: 5,
+    });
+    expect(loaded?.runtime.materialStorage.materials).toHaveLength(2);
+    expect(loaded?.runtime.materialStorage.materials).toEqual(
+      expect.arrayContaining([
+        { materialId: generatedMaterialId, quantity: 9 },
+        { materialId: "generated:unknown-storage", quantity: 3 },
+      ]),
+    );
+    expect(loaded?.runtime.materialCodex.discoveredMaterialIds).toContain(
+      generatedMaterialId,
+    );
+    expect(loaded?.runtime.materialCodex.recipeResults).toEqual([
+      expect.objectContaining({
+        recipeKey: result.recipeKey,
+        resultMaterialId: generatedMaterialId,
+        stationType: "combiner",
+      }),
+    ]);
+    expect(loaded?.runtime.materialCodex.unlockedResearchTiers).toEqual([
+      "crystalline",
+      "metallurgical",
+    ]);
+
+    const loadedRegistry = materialRegistryFromSerializedCodex(
+      loaded?.runtime.materialCodex,
+    );
+    const loadedCodex = new MaterialCodex(loadedRegistry);
+    const regenerated = new InfiniteTerrain(
+      created.metadata.seed,
+      4,
+      1,
+      loadedRegistry,
+    );
+
+    expect(loadedCodex.findById(generatedMaterialId)?.name).toBe(
+      result.material.name,
+    );
+    expect(loadedCodex.discoveredMaterialIds()).toContain(generatedMaterialId);
+    expect(loadedRegistry.getRecipeResult(iron.id, carbon.id)?.id).toBe(
+      generatedMaterialId,
+    );
+
+    regenerated.importTerrainEditChunks(loaded?.terrainEditChunks ?? []);
+
+    expect(
+      regenerated.materialAt(
+        workbenchPosition.q,
+        workbenchPosition.r,
+        workbenchPosition.level,
+      ),
+    ).toBe(TerrainMaterial.AssemblerWorkbench);
+    expect(
+      regenerated.materialAt(
+        dynamicBlockPosition.q,
+        dynamicBlockPosition.r,
+        dynamicBlockPosition.level,
+      ),
+    ).toBe(TerrainMaterial.DynamicMaterial);
+    expect(regenerated.dynamicMaterialIdAt(dynamicBlockPosition)).toBe(
+      generatedMaterialId,
+    );
+    expect(
+      dynamicMaterialBlockDropItemId(
+        regenerated.dynamicMaterialIdAt(dynamicBlockPosition),
+        loadedRegistry,
+      ),
+    ).toBe(generatedItemId);
+
+    regenerated.setBlock(dynamicBlockPosition, TerrainMaterial.Air);
+
+    expect(regenerated.dynamicMaterialIdAt(dynamicBlockPosition)).toBeNull();
   });
 
   it("saves and loads generated material items in backpack", async () => {
@@ -494,6 +750,33 @@ describe("world save manager", () => {
       itemId: "block:assembler_workbench",
       count: 2,
     });
+  });
+
+  it("saves and loads modified tool item ids", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const manager = createManager();
+    const created = await manager.createWorld(getDefaultGameSettings(), 1000);
+    const itemId = modifiedToolItemId("tool:pickaxe", "element:iron");
+
+    await manager.saveWorld({
+      metadata: created.metadata,
+      player: { position: null },
+      inventory: {
+        selectedHotbarIndex: 0,
+        hotbar: [{ itemId, count: 1, durability: 41 }],
+        backpack: [],
+      },
+      terrainEditChunks: [],
+    });
+
+    const loaded = await manager.loadWorld(created.metadata.id);
+
+    expect(loaded?.runtime.inventory.hotbar?.[0]).toEqual({
+      itemId,
+      count: 1,
+      durability: 41,
+    });
+    warn.mockRestore();
   });
 
   it("preserves unknown item and material ids without crashing", async () => {

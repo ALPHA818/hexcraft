@@ -2,10 +2,37 @@ import type {
   MaterialDefinition,
   MaterialRarity,
 } from "../materials/MaterialTypes.ts";
+import {
+  materialDangerScore,
+  materialUsefulnessScore,
+} from "../materials/MaterialBalance.ts";
 import type { SerializedMaterialStorage } from "../save/WorldSaveTypes.ts";
 
 export type MaterialStorageSort =
-  "name" | "generation" | "rarity" | "quantity" | "tag";
+  | "name"
+  | "count"
+  | "quantity"
+  | "generation"
+  | "rarity"
+  | "stability"
+  | "danger"
+  | "usefulness"
+  | "tag";
+
+export type MaterialStorageGenerationFilter =
+  "all" | "base" | "generated" | "gen1" | "gen2" | "gen3plus";
+export type MaterialStorageStabilityFilter = "all" | "stable" | "unstable";
+export type MaterialStorageHazardFilter =
+  "all" | "toxic" | "radioactive" | "hot";
+
+export type MaterialStorageFilters = Readonly<{
+  query?: string;
+  generation?: MaterialStorageGenerationFilter;
+  rarity?: MaterialRarity | "";
+  tag?: string;
+  stability?: MaterialStorageStabilityFilter;
+  hazard?: MaterialStorageHazardFilter;
+}>;
 
 export type MaterialStorageEntry = Readonly<{
   materialId: string;
@@ -42,6 +69,117 @@ function firstTag(entry: MaterialStorageEntry): string {
   return entry.material?.tags[0]?.toLowerCase() ?? "";
 }
 
+function normalizedText(text: string | undefined): string {
+  return text?.trim().toLowerCase() ?? "";
+}
+
+function matchesGenerationFilter(
+  material: MaterialDefinition | null,
+  filter: MaterialStorageGenerationFilter = "all",
+): boolean {
+  if (filter === "all") {
+    return true;
+  }
+  if (!material) {
+    return false;
+  }
+  if (filter === "base") {
+    return material.generation === 0;
+  }
+  if (filter === "generated") {
+    return material.generation > 0;
+  }
+  if (filter === "gen1") {
+    return material.generation === 1;
+  }
+  if (filter === "gen2") {
+    return material.generation === 2;
+  }
+
+  return material.generation >= 3;
+}
+
+function matchesStabilityFilter(
+  material: MaterialDefinition | null,
+  filter: MaterialStorageStabilityFilter = "all",
+): boolean {
+  if (filter === "all") {
+    return true;
+  }
+  if (!material) {
+    return false;
+  }
+
+  return filter === "stable"
+    ? material.stability >= 50
+    : material.stability < 50;
+}
+
+function matchesHazardFilter(
+  material: MaterialDefinition | null,
+  filter: MaterialStorageHazardFilter = "all",
+): boolean {
+  if (filter === "all") {
+    return true;
+  }
+  if (!material) {
+    return false;
+  }
+  if (filter === "toxic") {
+    return (
+      material.toxicity >= 50 ||
+      material.tags.some((tag) => tag.toLowerCase() === "toxic")
+    );
+  }
+  if (filter === "radioactive") {
+    return (
+      material.radioactivity >= 50 ||
+      material.tags.some((tag) => tag.toLowerCase() === "radioactive")
+    );
+  }
+
+  return (
+    material.heat >= 65 ||
+    material.tags.some((tag) => tag.toLowerCase() === "fire")
+  );
+}
+
+export function materialMatchesStorageFilters(
+  materialId: string,
+  material: MaterialDefinition | null,
+  filters: MaterialStorageFilters = {},
+): boolean {
+  const query = normalizedText(filters.query);
+  const tag = normalizedText(filters.tag);
+  const rarity = filters.rarity ?? "";
+
+  if (
+    query !== "" &&
+    !materialId.toLowerCase().includes(query) &&
+    !(material?.name.toLowerCase().includes(query) ?? false)
+  ) {
+    return false;
+  }
+  if (
+    tag !== "" &&
+    !(
+      material?.tags.some((materialTag) => materialTag.toLowerCase() === tag) ??
+      false
+    )
+  ) {
+    return false;
+  }
+  if (rarity !== "" && material?.rarity !== rarity) {
+    return false;
+  }
+
+  return (
+    matchesGenerationFilter(material, filters.generation) &&
+    matchesStabilityFilter(material, filters.stability) &&
+    matchesHazardFilter(material, filters.hazard)
+  );
+}
+
 function compareStorageEntries(
   a: MaterialStorageEntry,
   b: MaterialStorageEntry,
@@ -60,9 +198,29 @@ function compareStorageEntries(
       materialName(a).localeCompare(materialName(b))
     );
   }
-  if (sort === "quantity") {
+  if (sort === "count" || sort === "quantity") {
     return (
       b.quantity - a.quantity || materialName(a).localeCompare(materialName(b))
+    );
+  }
+  if (sort === "stability") {
+    return (
+      (b.material?.stability ?? -1) - (a.material?.stability ?? -1) ||
+      materialName(a).localeCompare(materialName(b))
+    );
+  }
+  if (sort === "danger") {
+    return (
+      (b.material ? materialDangerScore(b.material) : -1) -
+        (a.material ? materialDangerScore(a.material) : -1) ||
+      materialName(a).localeCompare(materialName(b))
+    );
+  }
+  if (sort === "usefulness") {
+    return (
+      (b.material ? materialUsefulnessScore(b.material) : -1) -
+        (a.material ? materialUsefulnessScore(a.material) : -1) ||
+      materialName(a).localeCompare(materialName(b))
     );
   }
   if (sort === "tag") {
@@ -119,10 +277,9 @@ export function materialStorageEntries(
   resolver: MaterialStorageResolver | null,
   options: Readonly<{
     sort?: MaterialStorageSort;
-    tag?: string;
-  }> = {},
+  }> &
+    MaterialStorageFilters = {},
 ): readonly MaterialStorageEntry[] {
-  const normalizedTag = options.tag?.trim().toLowerCase() ?? "";
   const entries = storage
     .serialize()
     .materials.map((entry): MaterialStorageEntry => {
@@ -135,11 +292,7 @@ export function materialStorageEntries(
       };
     })
     .filter((entry) =>
-      normalizedTag === ""
-        ? true
-        : (entry.material?.tags.some(
-            (tag) => tag.toLowerCase() === normalizedTag,
-          ) ?? false),
+      materialMatchesStorageFilters(entry.materialId, entry.material, options),
     );
 
   return entries.sort((a, b) =>

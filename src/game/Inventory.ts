@@ -3,10 +3,11 @@ import {
   blockItemIdForMaterial,
   equippedToolForItem,
   HOTBAR_SLOT_COUNT,
-  ITEM_DEFINITIONS,
   itemDefinitionFor,
+  itemIdForMaterial,
   materialIdFromItemId,
   placeableMaterialForItem,
+  type EquipmentItemDefinition,
   type ItemDefinition,
   type ItemId,
 } from "../items/ItemRegistry.ts";
@@ -21,6 +22,7 @@ import {
 } from "../items/ItemStack.ts";
 import type { EquippedTool } from "../items/ToolTypes.ts";
 import {
+  materialBlockTintCssForVisuals,
   materialVisualsForMaterial,
   UNKNOWN_MATERIAL_VISUALS,
   type MaterialVisuals,
@@ -35,7 +37,6 @@ import { minedDrop as registryMinedDrop } from "../world/blocks.ts";
 import type { GameMode } from "./gameMode.ts";
 import type { MaterialStorage } from "./MaterialStorage.ts";
 
-export type InventoryItem = ItemDefinition;
 export type InventorySlot = ItemStack | null;
 export type InventoryContainer = Readonly<{
   slots: readonly InventorySlot[];
@@ -68,6 +69,15 @@ export type InventoryVisibleStack = Readonly<{
   stack: ItemStack;
   item: ItemDefinition;
 }>;
+export type InventoryEquipmentItem = Readonly<{
+  itemId: ItemId;
+  count: number;
+  item: EquipmentItemDefinition;
+}>;
+export type GeneratedMaterialStorageFilter = (
+  materialId: string,
+  material: MaterialDefinition | null,
+) => boolean;
 
 export const BACKPACK_SLOT_COUNT = 27;
 
@@ -114,26 +124,12 @@ export function minedDrop(material: TerrainMaterial): TerrainMaterial | null {
   return drop === null ? null : (drop as TerrainMaterial);
 }
 
-const SURVIVAL_STARTER_ITEM_STACKS = [
-  { itemId: "tool:pickaxe", count: 1 },
-  { itemId: "tool:shovel", count: 1 },
-  { itemId: "tool:axe", count: 1 },
-] as const satisfies readonly { itemId: ItemId; count: number }[];
-
 function createEmptySlots(count: number): InventorySlot[] {
   return Array.from({ length: count }, () => null);
 }
 
-function createStartingHotbar(mode: GameMode): InventorySlot[] {
-  const slots = createEmptySlots(HOTBAR_SLOT_COUNT);
-
-  if (mode === "survival") {
-    for (const [index, starter] of SURVIVAL_STARTER_ITEM_STACKS.entries()) {
-      slots[index] = createItemStack(starter.itemId, starter.count);
-    }
-  }
-
-  return slots;
+function createStartingHotbar(): InventorySlot[] {
+  return createEmptySlots(HOTBAR_SLOT_COUNT);
 }
 
 function createStartingBackpack(): InventorySlot[] {
@@ -266,6 +262,8 @@ function itemCategoryRank(item: ItemDefinition | null): number {
       return 2;
     case "generated_material":
       return 3;
+    case "equipment":
+      return 5;
   }
 }
 
@@ -358,6 +356,10 @@ export function applyGeneratedMaterialVisual(
   element.style?.setProperty("--item-base-color", visuals.baseColor);
   element.style?.setProperty("--item-accent-color", visuals.accentColor);
   element.style?.setProperty(
+    "--item-block-tint",
+    materialBlockTintCssForVisuals(visuals),
+  );
+  element.style?.setProperty(
     "--item-emissive-strength",
     String(visuals.emissiveStrength),
   );
@@ -384,6 +386,12 @@ export class Inventory {
   readonly #onMaterialStorageChanged: () => void;
   readonly #openMaterialStorage: () => void;
   readonly #openCreativeCatalog: () => void;
+  readonly #openEquipment: () => void;
+  readonly #onItemAdded: (itemId: ItemId, amount: number) => void;
+  readonly #onGeneratedMaterialStored: (
+    materialId: string,
+    quantity: number,
+  ) => void;
 
   #hotbarSlots: InventorySlot[];
   #backpackSlots: InventorySlot[];
@@ -411,6 +419,12 @@ export class Inventory {
     onMaterialStorageChanged: () => void = () => {},
     openMaterialStorage: () => void = () => {},
     openCreativeCatalog: () => void = () => {},
+    openEquipment: () => void = () => {},
+    onItemAdded: (itemId: ItemId, amount: number) => void = () => {},
+    onGeneratedMaterialStored: (
+      materialId: string,
+      quantity: number,
+    ) => void = () => {},
   ) {
     const hotbar = document.querySelector<HTMLElement>("#hotbar");
     const panel = document.querySelector<HTMLElement>("#inventory-panel");
@@ -438,7 +452,10 @@ export class Inventory {
     this.#onMaterialStorageChanged = onMaterialStorageChanged;
     this.#openMaterialStorage = openMaterialStorage;
     this.#openCreativeCatalog = openCreativeCatalog;
-    this.#hotbarSlots = createStartingHotbar(mode);
+    this.#openEquipment = openEquipment;
+    this.#onItemAdded = onItemAdded;
+    this.#onGeneratedMaterialStored = onGeneratedMaterialStored;
+    this.#hotbarSlots = createStartingHotbar();
     this.#backpackSlots = createStartingBackpack();
 
     document.addEventListener("keydown", this.#handleKeyDown, {
@@ -454,10 +471,6 @@ export class Inventory {
 
   isOpen(): boolean {
     return this.#isOpen;
-  }
-
-  creativeCatalogItems(): readonly InventoryItem[] {
-    return this.#isCreative ? ITEM_DEFINITIONS : [];
   }
 
   readonly #handleKeyDown = (event: KeyboardEvent): void => {
@@ -542,6 +555,10 @@ export class Inventory {
     }
 
     return null;
+  }
+
+  selectedHazardMaterial(): MaterialDefinition | null {
+    return this.selectedProceduralMaterial();
   }
 
   slot(index: number): ItemStack | null {
@@ -654,6 +671,12 @@ export class Inventory {
       this.#importSlotsInto(importedBackpack, state.backpack ?? []);
     } else if (state.slots) {
       this.#importSlotsInto(importedHotbar, state.slots);
+      if (state.slots.length > HOTBAR_SLOT_COUNT) {
+        this.#importSlotsInto(
+          importedBackpack,
+          state.slots.slice(HOTBAR_SLOT_COUNT),
+        );
+      }
     } else if (state.items) {
       for (const item of state.items) {
         if (Number.isFinite(item.material) && Number.isFinite(item.count)) {
@@ -695,6 +718,35 @@ export class Inventory {
     );
   }
 
+  equipmentItems(): readonly InventoryEquipmentItem[] {
+    const items = new Map<ItemId, InventoryEquipmentItem>();
+
+    for (const stack of this.#allSlots()) {
+      if (!stack) {
+        continue;
+      }
+
+      const item = this.#itemDefinitionFor(stack.itemId);
+      if (item?.kind !== "equipment") {
+        continue;
+      }
+
+      const existing = items.get(item.id);
+      items.set(item.id, {
+        itemId: item.id,
+        item,
+        count: (existing?.count ?? 0) + stack.count,
+      });
+    }
+
+    return [...items.values()].sort((first, second) =>
+      first.item.displayName.localeCompare(second.item.displayName, undefined, {
+        numeric: true,
+        sensitivity: "base",
+      }),
+    );
+  }
+
   add(material: TerrainMaterial, amount = 1): void {
     const itemId = blockItemIdForMaterial(material);
 
@@ -707,9 +759,12 @@ export class Inventory {
 
   addItem(itemId: ItemId, amount = 1): boolean {
     if (this.#isCreative) {
-      return true;
+      return false;
     }
     const added = this.#addItemToInventory(itemId, amount);
+    if (added) {
+      this.#onItemAdded(itemId, amount);
+    }
     this.render();
     return added;
   }
@@ -727,10 +782,14 @@ export class Inventory {
         this.#selectedHotbarIndex = grantIndex;
       }
       this.#grantSlotIndex = (grantIndex + 1) % totalSlots;
+      this.#onItemAdded(itemId, amount);
       this.render();
       return true;
     }
 
+    if (added) {
+      this.#onItemAdded(itemId, amount);
+    }
     this.render();
     return added;
   }
@@ -748,41 +807,7 @@ export class Inventory {
     if (amount <= 0) {
       return true;
     }
-    if (this.countItem(itemId) < amount) {
-      return false;
-    }
-
-    let remaining = amount;
-
-    for (const slots of this.#slotContainers()) {
-      for (const [index, stack] of slots.entries()) {
-        if (!stack || stack.itemId !== itemId) {
-          continue;
-        }
-
-        const removed = Math.min(stack.count, remaining);
-        const nextCount = stack.count - removed;
-        slots[index] =
-          nextCount > 0
-            ? {
-                ...stack,
-                count: nextCount,
-              }
-            : null;
-        remaining -= removed;
-
-        if (remaining === 0) {
-          break;
-        }
-      }
-
-      if (remaining === 0) {
-        break;
-      }
-    }
-
-    this.render();
-    return true;
+    return this.#removeItemFromInventory(itemId, amount);
   }
 
   consumeSelectedStack(amount = 1): boolean {
@@ -843,23 +868,98 @@ export class Inventory {
 
     const materialId = materialIdFromItemId(itemId);
     const quantity = Math.max(1, Math.floor(amount));
+    const item = this.#itemDefinitionFor(itemId);
 
-    if (!materialId || this.countItem(itemId) < quantity) {
+    if (
+      !materialId ||
+      item?.kind !== "generated_material" ||
+      this.countItem(itemId) < quantity
+    ) {
       return false;
     }
 
-    if (!this.removeItem(itemId, quantity)) {
+    if (!this.#removeItemFromInventory(itemId, quantity, false)) {
       return false;
     }
 
     if (!this.#materialStorage.addMaterial(materialId, quantity)) {
-      this.addItem(itemId, quantity);
+      this.#addItemToInventory(itemId, quantity);
       return false;
+    }
+
+    this.#onGeneratedMaterialStored(materialId, quantity);
+    this.#onMaterialStorageChanged();
+    this.render();
+    return true;
+  }
+
+  storeGeneratedMaterialItems(
+    filter: GeneratedMaterialStorageFilter = () => true,
+  ): number {
+    if (!this.#materialStorage) {
+      return 0;
+    }
+
+    let moved = 0;
+
+    for (const slots of this.#slotContainers()) {
+      for (const [index, stack] of slots.entries()) {
+        if (!stack) {
+          continue;
+        }
+
+        const item = this.#itemDefinitionFor(stack.itemId);
+        if (
+          item?.kind !== "generated_material" ||
+          !filter(item.materialId, item.material)
+        ) {
+          continue;
+        }
+
+        if (this.#materialStorage.addMaterial(item.materialId, stack.count)) {
+          moved += stack.count;
+          this.#onGeneratedMaterialStored(item.materialId, stack.count);
+          slots[index] = null;
+        }
+      }
+    }
+
+    if (moved > 0) {
+      this.#onMaterialStorageChanged();
+      this.render();
+    }
+
+    return moved;
+  }
+
+  withdrawStoredMaterial(materialId: string, amount = 64): number {
+    if (!this.#materialStorage) {
+      return 0;
+    }
+
+    const quantity = Math.min(
+      this.#materialStorage.count(materialId),
+      Math.max(1, Math.floor(amount)),
+    );
+    const itemId = itemIdForMaterial(materialId);
+
+    if (
+      quantity <= 0 ||
+      !this.#itemDefinitionFor(itemId) ||
+      !this.#canFitItem(itemId, quantity) ||
+      !this.#materialStorage.removeMaterial(materialId, quantity)
+    ) {
+      return 0;
+    }
+
+    if (!this.#addItemToInventory(itemId, quantity)) {
+      this.#materialStorage.addMaterial(materialId, quantity);
+      return 0;
     }
 
     this.#onMaterialStorageChanged();
     this.render();
-    return true;
+    return quantity;
   }
 
   select(index: number): void {
@@ -1279,18 +1379,26 @@ export class Inventory {
 
     if (this.#materialStorage) {
       buttons.push(
+        this.#createActionButton("Store Materials", {
+          className: "inventory-action-store-materials",
+          title: "Move generated material items into material storage",
+          onClick: () => this.storeGeneratedMaterialItems(),
+        }),
+      );
+      buttons.push(
         this.#createActionButton("Material Storage", {
           className: "inventory-action-material-storage",
+          title: "Open material storage",
           onClick: () => this.#openMaterialStorage(),
         }),
       );
     }
 
     buttons.push(
-      this.#createActionButton("Equipment (Coming Soon)", {
+      this.#createActionButton("Equipment", {
         className: "inventory-action-equipment",
-        disabled: true,
-        title: "Equipment slots are coming soon.",
+        title: "Open equipment slots",
+        onClick: () => this.#openEquipment(),
       }),
     );
 
@@ -1696,6 +1804,84 @@ export class Inventory {
 
   #addItemToInventory(itemId: ItemId, amount: number): boolean {
     return this.#addItemToContainers(this.#slotContainers(), itemId, amount);
+  }
+
+  #removeItemFromInventory(
+    itemId: ItemId,
+    amount: number,
+    shouldRender = true,
+  ): boolean {
+    if (amount <= 0) {
+      return true;
+    }
+    if (this.countItem(itemId) < amount) {
+      return false;
+    }
+
+    let remaining = amount;
+
+    for (const slots of this.#slotContainers()) {
+      for (const [index, stack] of slots.entries()) {
+        if (!stack || stack.itemId !== itemId) {
+          continue;
+        }
+
+        const removed = Math.min(stack.count, remaining);
+        const nextCount = stack.count - removed;
+        slots[index] =
+          nextCount > 0
+            ? {
+                ...stack,
+                count: nextCount,
+              }
+            : null;
+        remaining -= removed;
+
+        if (remaining === 0) {
+          break;
+        }
+      }
+
+      if (remaining === 0) {
+        break;
+      }
+    }
+
+    if (shouldRender) {
+      this.render();
+    }
+
+    return true;
+  }
+
+  #canFitItem(itemId: ItemId, amount: number): boolean {
+    const item = this.#itemDefinitionFor(itemId);
+
+    if (!item || amount <= 0) {
+      return amount <= 0;
+    }
+    if (item.kind === "tool") {
+      return this.#allSlots().filter((slot) => slot === null).length >= amount;
+    }
+
+    let capacity = 0;
+    const candidateStack = this.#createItemStack(itemId);
+
+    for (const stack of this.#allSlots()) {
+      if (!stack) {
+        capacity += item.maxStackSize;
+      } else if (
+        canMergeItemStacks(stack, candidateStack, this.#materialItemResolver)
+      ) {
+        capacity += Math.max(0, item.maxStackSize - stack.count);
+      }
+
+      if (capacity >= amount) {
+        return true;
+      }
+    }
+
+    return false;
   }
 
   #insertStackIntoContainers(
